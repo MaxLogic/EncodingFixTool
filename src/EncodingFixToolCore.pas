@@ -401,6 +401,7 @@ end;
 function TEncodingFixTool.FixFile(const aFile: string; const aOptions: TOptions; out aChanged: boolean; out aReason: string): boolean;
 var
   lBytes: TBytes;
+  lBytesNoBom: TBytes;
   lLinesBytes: TArray<TBytes>;
   lLine: TBytes;
   lFixedLines: TStringBuilder;
@@ -411,6 +412,10 @@ var
   lBom: TBytes;
   lHasBOM: Boolean;
   lText: string;
+  lCRLF, lLF, lCR: Integer;
+  i: Integer;
+  lEOL: string;
+  lHadTrailingEOL: Boolean;
 begin
   Result := False;
   aChanged := False;
@@ -480,7 +485,51 @@ begin
   end;
 
   // Mixed encodings possible: split by raw CR/LF bytes, decode per line.
-  lLinesBytes := SplitLinesByBytes(GetWithoutUtf8Bom(lBytes));
+  lBytesNoBom := GetWithoutUtf8Bom(lBytes);
+
+  // Detect dominant EOL and whether the original had a trailing EOL
+  lCRLF := 0; lLF := 0; lCR := 0;
+  i := 0;
+  while i < Length(lBytesNoBom) do
+  begin
+    if lBytesNoBom[i] = $0D then
+    begin
+      if (i + 1 < Length(lBytesNoBom)) and (lBytesNoBom[i + 1] = $0A) then
+      begin
+        Inc(lCRLF);
+        Inc(i, 2);
+      end else
+      begin
+        Inc(lCR);
+        Inc(i);
+      end;
+    end else if lBytesNoBom[i] = $0A then
+    begin
+      Inc(lLF);
+      Inc(i);
+    end else
+    begin
+      Inc(i);
+    end;
+  end;
+
+  if (lCRLF >= lLF) and (lCRLF >= lCR) then
+    lEOL := #13#10
+  else if (lLF >= lCR) then
+    lEOL := #10
+  else
+    lEOL := #13;
+
+  lHadTrailingEOL := False;
+  if Length(lBytesNoBom) > 0 then
+  begin
+    if (Length(lBytesNoBom) >= 2) and (lBytesNoBom[Length(lBytesNoBom) - 2] = $0D) and (lBytesNoBom[Length(lBytesNoBom) - 1] = $0A) then
+      lHadTrailingEOL := True
+    else if (lBytesNoBom[Length(lBytesNoBom) - 1] = $0A) or (lBytesNoBom[Length(lBytesNoBom) - 1] = $0D) then
+      lHadTrailingEOL := True;
+  end;
+
+  lLinesBytes := SplitLinesByBytes(lBytesNoBom);
 
   lFixedLines := TStringBuilder.Create(length(lBytes) + 1024);
   gc(lFixedLines);
@@ -490,12 +539,17 @@ begin
   begin
     if not lFirst then
     begin
-      lFixedLines.AppendLine;
+      lFixedLines.Append(lEOL);
     end else
     begin
       lFirst := False;
     end;
-    lFixedLines.append(DecodeBestPerLine(lLine));
+    lFixedLines.Append(DecodeBestPerLine(lLine));
+  end;
+
+  if (Length(lLinesBytes) > 0) and lHadTrailingEOL then
+  begin
+    lFixedLines.Append(lEOL);
   end;
 
   // If dry-run, do not write anything—just indicate change.
@@ -534,15 +588,14 @@ function TEncodingFixTool.GetWithoutUtf8Bom(const aBytes: TBytes): TBytes;
 var
   lBom: TBytes;
   lHasBom: Boolean;
-  lBytesNoBom: TBytes;
 begin
   lBom := TEncoding.UTF8.GetPreamble;
   lHasBom := (Length(aBytes) >= Length(lBom)) and CompareMem(@aBytes[0], @lBom[0], Length(lBom));
 
   if lHasBom then
-    lBytesNoBom := Copy(aBytes, Length(lBom), Length(aBytes) - Length(lBom))
+    Result := Copy(aBytes, Length(lBom), Length(aBytes) - Length(lBom))
   else
-    lBytesNoBom := aBytes;
+    Result := aBytes;
 end;
 
 function TEncodingFixTool.ShowHelp: integer;
@@ -772,19 +825,14 @@ begin
         begin
           if lChanged then
           begin
-            if lOptions.DryRun then
-            begin
-              if not lSilent then
-              begin
-                TSafeConsole.WriteLine('Would fix: ' + lFile + ' (' + lReason + ')');
-              end;
-            end else
+            if not lOptions.DryRun then
             begin
               lLocalChanged := 1;
-              if not lSilent then
-              begin
-                TSafeConsole.WriteLine('Fixed: ' + lFile);
-              end;
+            end;
+            if not lSilent then
+            begin
+              TSafeConsole.WriteLine(Format('%s: %s (%s)',
+                [IfThen(lOptions.DryRun, 'Would fix', 'Fixed'), lFile, lReason]));
             end;
           end else
           begin
