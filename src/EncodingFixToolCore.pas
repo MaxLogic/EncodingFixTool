@@ -26,8 +26,7 @@ uses
   System.SysUtils,
   System.Classes,
   System.Generics.Collections,
-  System.Types,
-  System.IOUtils,
+    System.IOUtils,
   System.SyncObjs,
   System.Diagnostics,
   System.StrUtils,
@@ -69,6 +68,7 @@ type
 
     // Encoding helpers
     function IsUtf8Strict(const aBytes: TBytes): boolean;
+    function GetWithoutUtf8Bom(const aBytes: TBytes): TBytes;
     function SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
     function DecodeBestPerLine(const aLineBytes: TBytes): string;
     function ScoreDecoded(const aText: string): integer;
@@ -199,22 +199,13 @@ end;
 
 function TEncodingFixTool.IsUtf8Strict(const aBytes: TBytes): boolean;
 var
-  lBom: TBytes;
-  lHasBom: Boolean;
   lBytesNoBom: TBytes;
 begin
-  lBom := TEncoding.UTF8.GetPreamble;
-  lHasBom := (Length(aBytes) >= Length(lBom)) and CompareMem(@aBytes[0], @lBom[0], Length(lBom));
-
-  if lHasBom then
-    lBytesNoBom := Copy(aBytes, Length(lBom), Length(aBytes) - Length(lBom))
-  else
-    lBytesNoBom := aBytes;
-
+  lBytesNoBom:= GetWithoutUtf8Bom(aBytes);
   if Length(lBytesNoBom) = 0 then
     Exit(True);
 
-  Result := TEncoding.Utf8.IsBufferValid(lBytesNoBom(lBytesNoBom));
+  Result := TEncoding.Utf8.IsBufferValid(lBytesNoBom);
 end;
 
 function TEncodingFixTool.SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
@@ -332,16 +323,15 @@ end;
 
 function TEncodingFixTool.DecodeBestPerLine(const aLineBytes: TBytes): string;
 var
-  lUTF8, lANSI: TEncoding;
-  sUTF8, s1250, s1252, sANSI: string;
+  lANSI: TEncoding;
+  s1250, s1252, sANSI: string;
   bestS: string;
   bestScore, sc: integer;
 begin
   // 1) Try strict UTF-8 first
-  lUTF8 := TEncoding.UTF8;
   if IsUtf8Strict(aLineBytes) then
   begin
-    Result := lUTF8.GetString(aLineBytes);
+    Result := TEncoding.UTF8.GetString(aLineBytes);
     Exit;
   end;
 
@@ -490,7 +480,7 @@ begin
   end;
 
   // Mixed encodings possible: split by raw CR/LF bytes, decode per line.
-  lLinesBytes := SplitLinesByBytes(lBytes);
+  lLinesBytes := SplitLinesByBytes(GetWithoutUtf8Bom(lBytes));
 
   lFixedLines := TStringBuilder.Create(length(lBytes) + 1024);
   gc(lFixedLines);
@@ -538,6 +528,21 @@ begin
     aReason := 'Save failed';
     Result := False;
   end;
+end;
+
+function TEncodingFixTool.GetWithoutUtf8Bom(const aBytes: TBytes): TBytes;
+var
+  lBom: TBytes;
+  lHasBom: Boolean;
+  lBytesNoBom: TBytes;
+begin
+  lBom := TEncoding.UTF8.GetPreamble;
+  lHasBom := (Length(aBytes) >= Length(lBom)) and CompareMem(@aBytes[0], @lBom[0], Length(lBom));
+
+  if lHasBom then
+    lBytesNoBom := Copy(aBytes, Length(lBom), Length(aBytes) - Length(lBom))
+  else
+    lBytesNoBom := aBytes;
 end;
 
 function TEncodingFixTool.ShowHelp: integer;
