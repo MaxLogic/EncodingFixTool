@@ -111,6 +111,42 @@ begin
   end;
 end;
 
+{ =====================  TEncodingFixTool lifecycle  ===================== }
+
+constructor TEncodingFixTool.Create;
+begin
+  inherited Create;
+  fWantedExts := TStringList.Create;
+  fWantedExts.Sorted := True;
+  fWantedExts.Duplicates := dupIgnore;
+  fWantedExts.CaseSensitive := False;
+end;
+
+destructor TEncodingFixTool.Destroy;
+begin
+  fWantedExts.Free;
+  inherited;
+end;
+
+procedure TEncodingFixTool.PrepareExtIndex(const aExts: TArray<string>);
+var
+  s: string;
+begin
+  fWantedExts.BeginUpdate;
+  try
+    fWantedExts.Clear;
+    for s in aExts do
+    begin
+      if s <> '' then
+      begin
+        fWantedExts.Add(LowerCase(s));
+      end;
+    end;
+  finally
+    fWantedExts.EndUpdate;
+  end;
+end;
+
 function TEncodingFixTool.NormalizeExtList(const aCSV: string): TArray<string>;
 var
   lParts: TArray<string>;
