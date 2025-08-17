@@ -710,10 +710,15 @@ begin
   for i := 1 to ParamCount do
   begin
     p := Trim(ParamStr(i));
+
+    // allow for "-" or "/" param prefixes
+    if startsStr('-', p) {$IFDEF MsWindows}or StartsStr('/', p){$ENDIF} then
+      delete(p, 1, 1);
     if p = '' then
     begin
       Continue;
     end;
+
 
     // allow "key=value" or "key:value" or single flag
     eqPos := p.IndexOf('=');
