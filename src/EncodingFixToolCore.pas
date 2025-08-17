@@ -344,9 +344,18 @@ var
   bestS: string;
   bestScore, sc: integer;
 begin
+  // 0) Pure ASCII? Treat as ASCII explicitly (safe UTF-8 subset)
+  if IsAsciiBytes(aLineBytes) then
+  begin
+    aEncName := 'ASCII';
+    Result := TEncoding.Utf8.GetString(aLineBytes);
+    exit;
+  end;
+
   // 1) Try strict UTF-8 first
   if IsUtf8Strict(aLineBytes) then
   begin
+    aEncName := 'UTF-8';
     Result := TEncoding.Utf8.GetString(aLineBytes);
     exit;
   end;
@@ -359,6 +368,7 @@ begin
   sANSI := lANSI.GetString(aLineBytes);
 
   bestS := s1250;
+  aEncName := 'Windows-1250';
   bestScore := ScoreDecoded(s1250);
 
   sc := ScoreDecoded(s1252);
@@ -366,12 +376,14 @@ begin
   begin
     bestScore := sc;
     bestS := s1252;
+    aEncName := 'Windows-1252';
   end;
 
   sc := ScoreDecoded(sANSI);
   if sc > bestScore then
   begin
     bestS := sANSI;
+    aEncName := 'ANSI';
   end;
 
   Result := bestS;
