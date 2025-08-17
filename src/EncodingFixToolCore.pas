@@ -88,7 +88,8 @@ type
 implementation
 
 uses
-  AutoFree;
+  AutoFree,
+  System.WideStrUtils;
 
 { =====================  Utilities  ===================== }
 
@@ -417,6 +418,8 @@ var
   i: Integer;
   lEOL: string;
   lHadTrailingEOL: Boolean;
+  rb: RawByteString;
+  lEncType: TEncodeType;
 begin
   Result := False;
   aChanged := False;
@@ -424,10 +427,31 @@ begin
 
   lBytes := TFile.ReadAllBytes(aFile);
 
-  // Quick path: strict UTF-8 decodes whole content fine?
-  if IsUtf8Strict(lBytes) then
+  // Detect encoding using System.WideStrUtils.DetectUTF8Encoding
+  SetLength(rb, Length(lBytes));
+  if Length(lBytes) > 0 then
+    Move(lBytes[0], PAnsiChar(rb)^, Length(lBytes));
+  lEncType := DetectUTF8Encoding(rb);
+
+  if lEncType = etUSAscii then
   begin
-    // Valid UTF-8 as a whole. Check BOM presence vs option and adjust if needed.
+    // Leave as-is. Do not add BOM even if option requests it.
+    if aOptions.DryRun then
+    begin
+      aChanged := False;
+      aReason := 'US-ASCII OK';
+      Result := True;
+      Exit;
+    end;
+
+    aChanged := False;
+    aReason := 'US-ASCII OK';
+    Result := True;
+    Exit;
+  end else
+  if lEncType = etUTF8 then
+  begin
+    // It's UTF-8 (ASCII subset or multibyte). Only ensure BOM matches option.
     lUTF8 := TEncoding.UTF8;
     lBom := lUTF8.GetPreamble;
     lHasBOM := (Length(lBytes) >= Length(lBom)) and
@@ -485,7 +509,7 @@ begin
     Exit;
   end;
 
-  // Mixed encodings possible: split by raw CR/LF bytes, decode per line.
+  // Mixed encodings possible (ANSI detected): split by raw CR/LF bytes, decode per line.
   lBytesNoBom := GetWithoutUtf8Bom(lBytes);
 
   // Detect dominant EOL and whether the original had a trailing EOL
