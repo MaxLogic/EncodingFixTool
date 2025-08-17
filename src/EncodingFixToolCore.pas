@@ -70,7 +70,8 @@ type
     function IsUtf8Strict(const aBytes: TBytes): boolean;
     function GetWithoutUtf8Bom(const aBytes: TBytes): TBytes;
     function SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
-    function DecodeBestPerLine(const aLineBytes: TBytes): string;
+    function IsAsciiBytes(const aBytes: TBytes): boolean;
+    function DecodeBestPerLine(const aLineBytes: TBytes; out aEncName: string): string;
     function ScoreDecoded(const aText: string): integer;
     function ContainsSpecials(const aText: string): integer;
 
@@ -324,7 +325,19 @@ begin
   Result := lScore;
 end;
 
-function TEncodingFixTool.DecodeBestPerLine(const aLineBytes: TBytes): string;
+function TEncodingFixTool.IsAsciiBytes(const aBytes: TBytes): boolean;
+var
+  b: Byte;
+begin
+  for b in aBytes do
+  begin
+    if b >= $80 then
+      Exit(False);
+  end;
+  Exit(True);
+end;
+
+function TEncodingFixTool.DecodeBestPerLine(const aLineBytes: TBytes; out aEncName: string): string;
 var
   lANSI: TEncoding;
   s1250, s1252, sANSI: string;
@@ -432,6 +445,10 @@ var
   lHadTrailingEOL: boolean;
   rb: RawByteString;
   lEncType: TEncodeType;
+  lCntUtf8, lCnt1250, lCnt1252, lCntAnsi, lCntAscii: Integer;
+  lEncName: string;
+  lReasonEnc: string;
+  lKinds: Integer;
 begin
   aChanged := False;
   aReason := '';
@@ -576,6 +593,12 @@ begin
   lFixedLines := TStringBuilder.Create(length(lBytes) + 1024);
   gc(lFixedLines);
 
+  lCntUtf8 := 0;
+  lCnt1250 := 0;
+  lCnt1252 := 0;
+  lCntAnsi := 0;
+  lCntAscii := 0;
+
   lFirst := True;
   for lLine in lLinesBytes do
   begin
@@ -586,7 +609,17 @@ begin
     begin
       lFirst := False;
     end;
-    lFixedLines.append(DecodeBestPerLine(lLine));
+    lFixedLines.append(DecodeBestPerLine(lLine, lEncName));
+    if lEncName = 'UTF-8' then
+      Inc(lCntUtf8)
+    else if lEncName = 'Windows-1250' then
+      Inc(lCnt1250)
+    else if lEncName = 'Windows-1252' then
+      Inc(lCnt1252)
+    else if lEncName = 'ANSI' then
+      Inc(lCntAnsi)
+    else if lEncName = 'ASCII' then
+      Inc(lCntAscii);
   end;
 
   if (length(lLinesBytes) > 0) and lHadTrailingEOL then
@@ -594,12 +627,33 @@ begin
     lFixedLines.append(lEOL);
   end;
 
+  // Summarize detected encoding(s)
+  lKinds := 0;
+  if lCntUtf8 > 0 then Inc(lKinds);
+  if lCnt1250 > 0 then Inc(lKinds);
+  if lCnt1252 > 0 then Inc(lKinds);
+  if lCntAnsi > 0 then Inc(lKinds);
+
+  if lKinds > 1 then
+    lReasonEnc := 'mixed bytes'
+  else if lCntUtf8 > 0 then
+    lReasonEnc := 'detected UTF-8'
+  else if lCnt1250 > 0 then
+    lReasonEnc := 'detected Windows-1250'
+  else if lCnt1252 > 0 then
+    lReasonEnc := 'detected Windows-1252'
+  else if lCntAnsi > 0 then
+    lReasonEnc := 'detected ANSI'
+  else
+    lReasonEnc := 'detected ASCII';
+
   // If dry-run, do not write anything—just indicate change.
   if aOptions.DryRun then
   begin
     aChanged := True;
-    aReason := Format('Non-UTF8/mixed bytes; would save UTF-8 (BOM=%s, EOL=%s) (dry-run)',
-      [IfThen(aOptions.Utf8Bom, 'Y', 'N'),
+    aReason := Format('%s; would save UTF-8 (BOM=%s, EOL=%s) (dry-run)',
+      [lReasonEnc,
+       IfThen(aOptions.Utf8Bom, 'Y', 'N'),
        IfThen(lEOL = #13#10, 'CRLF', IfThen(lEOL = #10, 'LF', 'CR'))]);
     Result := True;
     exit;
@@ -618,8 +672,9 @@ begin
   if SaveTextUTF8(aFile, lFixedLines.ToString, aOptions.Utf8Bom) then
   begin
     aChanged := True;
-    aReason := Format('Non-UTF8/mixed bytes; saved UTF-8 (BOM=%s, EOL=%s)',
-      [IfThen(aOptions.Utf8Bom, 'Y', 'N'),
+    aReason := Format('%s; saved UTF-8 (BOM=%s, EOL=%s)',
+      [lReasonEnc,
+       IfThen(aOptions.Utf8Bom, 'Y', 'N'),
        IfThen(lEOL = #13#10, 'CRLF', IfThen(lEOL = #10, 'LF', 'CR'))]);
     Result := True;
   end else
