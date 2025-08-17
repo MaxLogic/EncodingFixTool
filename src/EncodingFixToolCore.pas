@@ -77,6 +77,7 @@ type
     function FixFile(const aFile: string; const aOptions: TOptions; out aChanged: boolean; out aReason: string): boolean;
     function SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean): boolean;
     function MakeBackupPath(const aOptions: TOptions; const aRootPath, aFile: string): string;
+    function MakeRelativeTo(const aRootPath, aFile: string): string;
     procedure PrepareExtIndex(const aExts: TArray<string>);
 
   public
@@ -381,6 +382,19 @@ begin
   end;
 
   Result := TPath.Combine(IncludeTrailingPathDelimiter(aOptions.BackupDir), lRel);
+end;
+
+function TEncodingFixTool.MakeRelativeTo(const aRootPath, aFile: string): string;
+var
+  sRoot: string;
+begin
+  Result := aFile;
+  if aRootPath <> '' then
+  begin
+    sRoot := IncludeTrailingPathDelimiter(aRootPath);
+    if SameText(copy(aFile, 1, length(sRoot)), sRoot) then
+      Result := copy(aFile, length(sRoot) + 1, MaxInt);
+  end;
 end;
 
 function TEncodingFixTool.SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean): boolean;
@@ -806,6 +820,7 @@ var
   lSilent: boolean;
   lVerbose: boolean;
   lLoopProc: TProc<integer>;
+  lRoot: string;
 begin
 
   gc(lTool, TEncodingFixTool.Create);
@@ -834,6 +849,8 @@ begin
     TDirectory.CreateDirectory(lOptions.BackupDir);
   end;
 
+  lRoot := IncludeTrailingPathDelimiter(ExpandFileName(lOptions.Path));
+
   // Prepare fast extension lookup
   lTool.PrepareExtIndex(lOptions.Exts);
 
@@ -855,9 +872,11 @@ var
   lReason: string;
   lMsg: string;
   lLocalChanged: integer;
+  lRelFile: string;
 begin
   lFile := lFiles[idx];
   lLocalChanged := 0;
+  lRelFile := lTool.MakeRelativeTo(lRoot, lFile);
 
   try
     if lTool.FixFile(lFile, lOptions, lChanged, lReason) then
@@ -871,20 +890,20 @@ begin
         if not lSilent then
         begin
           TSafeConsole.WriteLine(Format('%s: %s (%s)',
-            [IfThen(lOptions.DryRun, 'Would fix', 'Fixed'), lFile, lReason]));
+            [IfThen(lOptions.DryRun, 'Would fix', 'Fixed'), lRelFile, lReason]));
         end;
       end else
       begin
         if lVerbose and (not lSilent) then
         begin
-          TSafeConsole.WriteLine('OK   : ' + lFile + ' (' + lReason + ')');
+          TSafeConsole.WriteLine('OK   : ' + lRelFile + ' (' + lReason + ')');
         end;
       end;
     end else
     begin
       if not lSilent then
       begin
-        TSafeConsole.WriteLine('FAIL : ' + lFile + ' (' + lReason + ')');
+        TSafeConsole.WriteLine('FAIL : ' + lRelFile + ' (' + lReason + ')');
       end;
     end;
   except
@@ -892,7 +911,7 @@ begin
     begin
       if not lSilent then
       begin
-        lMsg := Format('ERROR: %s (%s)', [lFile, e.Message]);
+        lMsg := Format('ERROR: %s (%s)', [lRelFile, e.Message]);
         TSafeConsole.WriteLine(lMsg);
       end;
     end;
