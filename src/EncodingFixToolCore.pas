@@ -60,6 +60,8 @@ type
 
   private
     fWantedExts: TStringList;
+    fEnc1250: TEncoding;
+    fEnc1252: TEncoding;
     function ParseCommandLine(out aOptions: TOptions): integer;
     function ShowHelp: integer;
     function NormalizeExtList(const aCSV: string): TArray<string>;
@@ -120,11 +122,15 @@ begin
   fWantedExts.Sorted := True;
   fWantedExts.Duplicates := dupIgnore;
   fWantedExts.CaseSensitive := False;
+  fEnc1250 := TEncoding.GetEncoding(1250);
+  fEnc1252 := TEncoding.GetEncoding(1252);
 end;
 
 destructor TEncodingFixTool.Destroy;
 begin
   fWantedExts.Free;
+  fEnc1252.Free;
+  fEnc1250.Free;
   inherited;
 end;
 
@@ -356,31 +362,24 @@ end;
 
 function TEncodingFixTool.DecodeBestPerLine(const aLineBytes: TBytes): string;
 var
-  lUTF8, lCP1250, lCP1252, lANSI: TEncoding;
+  lUTF8, lANSI: TEncoding;
   sUTF8, s1250, s1252, sANSI: string;
   bestS: string;
   bestScore, sc: integer;
 begin
   // 1) Try strict UTF-8 first
-  lUTF8 := TEncoding.Utf8;
-  try
-    sUTF8 := lUTF8.GetString(aLineBytes);
-    // strict success => take it
-    exit(sUTF8);
-  except
-    on e: EEncodingError do
-    begin
-      // fall through
-    end;
+  lUTF8 := TEncoding.UTF8;
+  if IsUtf8Strict(aLineBytes) then
+  begin
+    Result := lUTF8.GetString(aLineBytes);
+    Exit;
   end;
 
   // 2) Try single-byte candidates; they never fail, so score them.
-  lCP1250 := TEncoding.GetEncoding(1250); // Polish/Central Europe
-  lCP1252 := TEncoding.GetEncoding(1252); // Western/German
   lANSI := TEncoding.ANSI;
 
-  s1250 := lCP1250.GetString(aLineBytes);
-  s1252 := lCP1252.GetString(aLineBytes);
+  s1250 := fEnc1250.GetString(aLineBytes);
+  s1252 := fEnc1252.GetString(aLineBytes);
   sANSI := lANSI.GetString(aLineBytes);
 
   bestS := s1250;
@@ -790,10 +789,19 @@ begin
         begin
           if lChanged then
           begin
-            lLocalChanged := 1;
-            if not lSilent then
+            if lOptions.DryRun then
             begin
-              TSafeConsole.WriteLine('Fixed: ' + lFile);
+              if not lSilent then
+              begin
+                TSafeConsole.WriteLine('Would fix: ' + lFile + ' (' + lReason + ')');
+              end;
+            end else
+            begin
+              lLocalChanged := 1;
+              if not lSilent then
+              begin
+                TSafeConsole.WriteLine('Fixed: ' + lFile);
+              end;
             end;
           end else
           begin
