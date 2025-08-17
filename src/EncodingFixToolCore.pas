@@ -89,37 +89,6 @@ implementation
 uses
   AutoFree;
 
-{ =====================  TEncodingFixTool lifecycle  ===================== }
-
-constructor TEncodingFixTool.Create;
-begin
-  inherited Create;
-  fWantedExts := TStringList.Create;
-  fWantedExts.Sorted := True;
-  fWantedExts.Duplicates := dupIgnore;
-  fWantedExts.CaseSensitive := False;
-end;
-
-destructor TEncodingFixTool.Destroy;
-begin
-  fWantedExts.Free;
-  inherited;
-end;
-
-procedure TEncodingFixTool.PrepareExtIndex(const aExts: TArray<string>);
-var
-  s: string;
-begin
-  fWantedExts.Clear;
-  for s in aExts do
-  begin
-    if s <> '' then
-    begin
-      fWantedExts.Add(LowerCase(s));
-    end;
-  end;
-end;
-
 { =====================  Utilities  ===================== }
 
 class constructor TEncodingFixTool.TSafeConsole.Create;
@@ -726,6 +695,7 @@ var
   lStopwatch: TStopWatch;
   lSilent: boolean;
   lVerbose: boolean;
+  lLoopProc: TProc<Integer>;
 begin
   Result := 0;
 
@@ -767,8 +737,8 @@ begin
   lChangedCount := 0;
   lStopwatch := TStopWatch.StartNew;
 
-  TParallel.&For(0, High(lFiles),
-    procedure(const idx: integer)
+  lLoopProc:=
+    procedure(idx: integer)
     var
       lFile: string;
       lChanged: boolean;
@@ -818,8 +788,8 @@ begin
       begin
         TInterlocked.Add(lChangedCount, lLocalChanged);
       end;
-    end
-  );
+    end;
+  TParallel.&For(0, High(lFiles), lLoopProc);
 
   lStopwatch.Stop;
 
