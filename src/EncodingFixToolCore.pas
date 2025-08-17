@@ -214,7 +214,7 @@ begin
   if Length(lBytesNoBom) = 0 then
     Exit(True);
 
-  Result := TUTF8Encoding.IsBufferValid(Pointer(lBytesNoBom), Length(lBytesNoBom));
+  Result := TEncoding.Utf8.IsBufferValid(Pointer(lBytesNoBom), Length(lBytesNoBom));
 end;
 
 function TEncodingFixTool.SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
