@@ -357,7 +357,6 @@ begin
   sc := ScoreDecoded(sANSI);
   if sc > bestScore then
   begin
-    bestScore := sc;
     bestS := sANSI;
   end;
 
@@ -389,7 +388,6 @@ var
   l: TStringList;
   lEnc: TEncoding;
 begin
-  Result := False;
   gc(l, TStringList.Create);
 
   lEnc := TEncoding.Utf8;
@@ -421,7 +419,6 @@ var
   rb: RawByteString;
   lEncType: TEncodeType;
 begin
-  Result := False;
   aChanged := False;
   aReason := '';
 
@@ -794,7 +791,6 @@ var
   lVerbose: boolean;
   lLoopProc: TProc<Integer>;
 begin
-  Result := 0;
 
   gc(lTool, TEncodingFixTool.Create);
 
