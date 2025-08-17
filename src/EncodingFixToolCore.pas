@@ -382,6 +382,7 @@ begin
   sc := ScoreDecoded(sANSI);
   if sc > bestScore then
   begin
+    bestScore := sc;
     bestS := sANSI;
     aEncName := 'ANSI';
   end;
@@ -424,17 +425,22 @@ end;
 
 function TEncodingFixTool.SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean): boolean;
 var
-  l: TStringList;
-  lEnc: TEncoding;
+  enc: TUTF8Encoding;
+  bytes: TBytes;
 begin
-  gc(l, TStringList.Create);
-
-  lEnc := TEncoding.Utf8;
-
-  l.WriteBOM := aWithBOM;
-  l.Text := aText;
-  l.SaveToFile(aFile, lEnc);
-  Result := True;
+  Result := False;
+  enc := TUTF8Encoding.Create(aWithBOM);
+  try
+    try
+      bytes := enc.GetBytes(aText);
+      TFile.WriteAllBytes(aFile, bytes);
+      Result := True;
+    except
+      Result := False;
+    end;
+  finally
+    enc.Free;
+  end;
 end;
 
 function TEncodingFixTool.FixFile(const aFile: string; const aOptions: TOptions; out aChanged: boolean; out aReason: string): boolean;
@@ -818,7 +824,7 @@ begin
       Val := '';
     end;
 
-    if (Key = 'help') or (Key = '--help') or (Key = '-h') then
+    if (Key = 'help') or (Key = 'h') then
     begin
       exit(ShowHelp);
     end else
