@@ -3,7 +3,7 @@
         <ProjectGuid>{1959AE99-D173-4E2E-B336-AC0FD08B007A}</ProjectGuid>
         <MainSource>EncodingFixTool.dpr</MainSource>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Config Condition="'$(Config)'==''">Release</Config>
         <ProjectName Condition="'$(ProjectName)'==''">EncodingFixTool</ProjectName>
         <TargetedPlatforms>693377</TargetedPlatforms>
         <AppType>Console</AppType>
