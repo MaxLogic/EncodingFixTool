@@ -59,25 +59,28 @@ type
       end;
 
   private
-    class function ParseCommandLine(out aOptions: TOptions): integer; static;
-    class function ShowHelp: integer; static;
-    class function NormalizeExtList(const aCSV: string): TArray<string>; static;
-    class function CollectFiles(const aOptions: TOptions): TArray<string>; static;
-    class function HasWantedExt(const aFile: string; const aExts: TArray<string>): boolean; static;
+    fWantedExts: TStringList;
+    function ParseCommandLine(out aOptions: TOptions): integer;
+    function ShowHelp: integer;
+    function NormalizeExtList(const aCSV: string): TArray<string>;
+    function CollectFiles(const aOptions: TOptions): TArray<string>;
+    function HasWantedExt(const aFile: string; const aExts: TArray<string>): boolean;
 
     // Encoding helpers
-    class function IsUtf8Strict(const aBytes: TBytes): boolean; static;
-    class function SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>; static;
-    class function DecodeBestPerLine(const aLineBytes: TBytes): string; static;
-    class function ScoreDecoded(const aText: string): integer; static;
-    class function ContainsSpecials(const aText: string): integer; static;
+    function IsUtf8Strict(const aBytes: TBytes): boolean;
+    function SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
+    function DecodeBestPerLine(const aLineBytes: TBytes): string;
+    function ScoreDecoded(const aText: string): integer;
+    function ContainsSpecials(const aText: string): integer;
 
-    class function FixFile(const aFile: string; const aOptions: TOptions; out aChanged: boolean; out aReason: string): boolean; static;
-    class function SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean): boolean; static;
-    class function MakeBackupPath(const aOptions: TOptions; const aRootPath, aFile: string): string; static;
+    function FixFile(const aFile: string; const aOptions: TOptions; out aChanged: boolean; out aReason: string): boolean;
+    function SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean): boolean;
+    function MakeBackupPath(const aOptions: TOptions; const aRootPath, aFile: string): string;
+    procedure PrepareExtIndex(const aExts: TArray<string>);
 
   public
-    // refactor this class. Only the RunFromCommandLine() method should be a class methid. All others should be normal instance methods. Inside the RunFromCommandLine() create a local instance and work with it instead of using the class methods. AI!
+    constructor Create;
+    destructor Destroy; override;
     class function RunFromCommandLine: integer; static;
   end;
 
@@ -108,7 +111,7 @@ begin
   end;
 end;
 
-class function TEncodingFixTool.NormalizeExtList(const aCSV: string): TArray<string>;
+function TEncodingFixTool.NormalizeExtList(const aCSV: string): TArray<string>;
 var
   lParts: TArray<string>;
   i: integer;
@@ -131,24 +134,16 @@ begin
   end;
 end;
 
-class function TEncodingFixTool.HasWantedExt(const aFile: string; const aExts: TArray<string>): boolean;
+function TEncodingFixTool.HasWantedExt(const aFile: string; const aExts: TArray<string>): boolean;
 var
   lExt: string;
-  lWanted: string;
 begin
-  // optimize this HasWantedExt() method. Create a fExt: TStringList storing the wanted extension there. sort it, and use it for loop ups. that should be more performant then this for loop. AI
+  // Optimized: use precomputed list of wanted extensions for O(log N) lookup.
   lExt := LowerCase(ExtractFileExt(aFile));
-  for lWanted in aExts do
-  begin
-    if lExt = lWanted then
-    begin
-      exit(True);
-    end;
-  end;
-  Result := False;
+  Result := fWantedExts.IndexOf(lExt) >= 0;
 end;
 
-class function TEncodingFixTool.CollectFiles(const aOptions: TOptions): TArray<string>;
+function TEncodingFixTool.CollectFiles(const aOptions: TOptions): TArray<string>;
 var
   lFiles: TList<string>;
   lSearchOpt: TSearchOption;
@@ -179,79 +174,70 @@ begin
 
 end;
 
-class function TEncodingFixTool.IsUtf8Strict(const aBytes: TBytes): boolean;
+function TEncodingFixTool.IsUtf8Strict(const aBytes: TBytes): boolean;
 var
   lUTF8: TEncoding;
-  ls: string;
-  lBom, lBytes: TBytes;
+  lBom: TBytes;
+  lBytesNoBom, lRound: TBytes;
+  lHasBom: Boolean;
+  s: string;
 begin
-  lUTF8 := TEncoding.Utf8;
-  lBytes := aBytes;
+  lUTF8 := TEncoding.UTF8;
 
-  lBom := lUTF8.GetPreamble
-    if (length(lBytes) >= length9lBom)) then
-if CompareMem(lBytes[0], lBom[0], length(lBom)) then
-  lBytes := copy(lBytes, length(lBom), length(lBytes) - length(lBom));
+  lBom := lUTF8.GetPreamble;
+  lHasBom := (Length(aBytes) >= Length(lBom)) and
+             ((Length(lBom) = 0) or CompareMem(@aBytes[0], @lBom[0], Length(lBom)));
 
-try
-  ls := lUTF8.GetString(aBytes);
-  Result := True;
-except
-  on e: EEncodingError do
+  if lHasBom then
   begin
-    Result := False;
+    SetLength(lBytesNoBom, Length(aBytes) - Length(lBom));
+    if Length(lBytesNoBom) > 0 then
+      Move(aBytes[Length(lBom)], lBytesNoBom[0], Length(lBytesNoBom));
+  end else
+  begin
+    lBytesNoBom := Copy(aBytes, 0, Length(aBytes));
   end;
-end;
+
+  // Round-trip: decode and re-encode. If bytes match exactly, treat as strict UTF-8.
+  s := lUTF8.GetString(lBytesNoBom);
+  lRound := lUTF8.GetBytes(s);
+  Result := (Length(lRound) = Length(lBytesNoBom)) and
+            ((Length(lRound) = 0) or CompareMem(@lRound[0], @lBytesNoBom[0], Length(lBytesNoBom)));
 end;
 
-class function TEncodingFixTool.SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
+function TEncodingFixTool.SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
 var
-  i, lStart: integer;
-  b: BYTE;
+  i, lStart: Integer;
+  b: Byte;
   lLine: TBytes;
-
-  // optimize this PushLine() method. resizing a array is not performant. Use TList<String< instead. AI
-
-  procedure PushLine(aEndExclusive: integer; aConsumeCR: boolean);
-  var
-    lLen: integer;
-  begin
-    lLen := aEndExclusive - lStart;
-    if lLen < 0 then
-    begin
-      lLen := 0;
-    end;
-    SetLength(lLine, lLen);
-    if lLen > 0 then
-    begin
-      move(aBytes[lStart], lLine[0], lLen);
-    end;
-    Result := Result + [lLine];
-    if aConsumeCR then
-    begin
-      // if CRLF, skip the CR at the end of line
-    end;
-  end;
+  lList: TList<TBytes>;
 begin
-  SetLength(Result, 0);
+  lList := TList<TBytes>.Create;
+  gc(lList);
+
   lStart := 0;
   i := 0;
-  while i < length(aBytes) do
+  while i < Length(aBytes) do
   begin
     b := aBytes[i];
-    if (b = $0A) then
+    if b = $0A then
     begin
-      // LF: line ends before this char, also check if previous byte was CR
-      PushLine(i, False);
+      // LF: line ends before this char
+      SetLength(lLine, i - lStart);
+      if Length(lLine) > 0 then
+        Move(aBytes[lStart], lLine[0], Length(lLine));
+      lList.Add(lLine);
       Inc(i);
       lStart := i;
-    end else
-      if (b = $0D) then
+    end else if b = $0D then
     begin
       // CR: line ends here; handle CRLF or standalone CR
-      PushLine(i, True);
+      SetLength(lLine, i - lStart);
+      if Length(lLine) > 0 then
+        Move(aBytes[lStart], lLine[0], Length(lLine));
+      lList.Add(lLine);
       Inc(i);
-      if (i < length(aBytes)) and (aBytes[i] = $0A) then
+      if (i < Length(aBytes)) and (aBytes[i] = $0A) then
       begin
         Inc(i); // consume LF
       end;
@@ -263,13 +249,18 @@ begin
   end;
 
   // last line (no trailing EOL)
-  if lStart <= length(aBytes) - 1 then
+  if lStart <= Length(aBytes) - 1 then
   begin
-    PushLine(length(aBytes), False);
+    SetLength(lLine, Length(aBytes) - lStart);
+    if Length(lLine) > 0 then
+      Move(aBytes[lStart], lLine[0], Length(lLine));
+    lList.Add(lLine);
   end;
+
+  Result := lList.ToArray;
 end;
 
-class function TEncodingFixTool.ContainsSpecials(const aText: string): integer;
+function TEncodingFixTool.ContainsSpecials(const aText: string): integer;
 const
   // Polish + German diacritics; count good matches positively.
   POL = 'ąćęłńóśźżĄĆĘŁŃÓŚŹŻ';
@@ -289,7 +280,7 @@ begin
   Result := lScore;
 end;
 
-class function TEncodingFixTool.ScoreDecoded(const aText: string): integer;
+function TEncodingFixTool.ScoreDecoded(const aText: string): integer;
 var
   lScore: integer;
   ch: char;
@@ -305,7 +296,7 @@ begin
 
   for ch in aText do
   begin
-    // add comments explaining what that is. AI
+    // U+FFFD REPLACEMENT CHARACTER: indicates decoding replacement for invalid/unknown bytes; penalize it.
     if ch = #$FFFD then
     begin
       Dec(lScore, 1);
@@ -327,7 +318,7 @@ begin
   Result := lScore;
 end;
 
-class function TEncodingFixTool.DecodeBestPerLine(const aLineBytes: TBytes): string;
+function TEncodingFixTool.DecodeBestPerLine(const aLineBytes: TBytes): string;
 var
   lUTF8, lCP1250, lCP1252, lANSI: TEncoding;
   sUTF8, s1250, s1252, sANSI: string;
@@ -376,7 +367,7 @@ begin
   Result := bestS;
 end;
 
-class function TEncodingFixTool.MakeBackupPath(const aOptions: TOptions; const aRootPath, aFile: string): string;
+function TEncodingFixTool.MakeBackupPath(const aOptions: TOptions; const aRootPath, aFile: string): string;
 var
   lRel: string;
 begin
@@ -396,23 +387,23 @@ begin
   Result := TPath.Combine(IncludeTrailingPathDelimiter(aOptions.BackupDir), lRel);
 end;
 
-class function TEncodingFixTool.SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean): boolean;
+function TEncodingFixTool.SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean): boolean;
 var
-  lSL: TStringList; // rename lSL to just "l". AI
+  l: TStringList;
   lEnc: TEncoding;
 begin
   Result := False;
-  gc(lSL, TStringList.Create);
+  gc(l, TStringList.Create);
 
   lEnc := TEncoding.Utf8;
 
-  lSL.Text := aText;
-  lSL.SaveToFile(aFile, lEnc);
-  lSL.WriteBOM := aWithBOM;
+  l.WriteBOM := aWithBOM;
+  l.Text := aText;
+  l.SaveToFile(aFile, lEnc);
   Result := True;
 end;
 
-class function TEncodingFixTool.FixFile(const aFile: string; const aOptions: TOptions; out aChanged: boolean; out aReason: string): boolean;
+function TEncodingFixTool.FixFile(const aFile: string; const aOptions: TOptions; out aChanged: boolean; out aReason: string): boolean;
 var
   lBytes: TBytes;
   lLinesBytes: TArray<TBytes>;
@@ -421,6 +412,10 @@ var
   lFirst: boolean;
   lRoot: string;
   lBackupPath: string;
+  lUTF8: TEncoding;
+  lBom: TBytes;
+  lHasBOM: Boolean;
+  lText: string;
 begin
   Result := False;
   aChanged := False;
@@ -431,14 +426,54 @@ begin
   // Quick path: strict UTF-8 decodes whole content fine?
   if IsUtf8Strict(lBytes) then
   begin
-    // no change needed
+    // Valid UTF-8 as a whole. Check BOM presence vs option and adjust if needed.
+    lUTF8 := TEncoding.UTF8;
+    lBom := lUTF8.GetPreamble;
+    lHasBOM := (Length(lBytes) >= Length(lBom)) and
+               ((Length(lBom) = 0) or CompareMem(@lBytes[0], @lBom[0], Length(lBom)));
 
-    // that is only partially true. even if the file was decoded properly, check if it starts with the UTF8 BOM. check the options, if we should add a bom. If the file leaks a bom but we should add one, then we still need to midify this file. AI
+    // Decode text ignoring BOM if present
+    if lHasBOM then
+      lText := lUTF8.GetString(Copy(lBytes, Length(lBom), Length(lBytes) - Length(lBom)))
+    else
+      lText := lUTF8.GetString(lBytes);
 
+    if aOptions.DryRun then
+    begin
+      if (aOptions.Utf8Bom and (not lHasBOM)) or ((not aOptions.Utf8Bom) and lHasBOM) then
+      begin
+        aChanged := True;
+        aReason := 'Would adjust BOM (dry-run)';
+      end else
+      begin
+        aChanged := False;
+        aReason := 'UTF-8 OK';
+      end;
+      Result := True;
+      Exit;
+    end;
+
+    if (aOptions.Utf8Bom and (not lHasBOM)) or ((not aOptions.Utf8Bom) and lHasBOM) then
+    begin
+      if SaveTextUTF8(aFile, lText, aOptions.Utf8Bom) then
+      begin
+        aChanged := True;
+        aReason := 'Adjusted BOM';
+        Result := True;
+      end else
+      begin
+        aChanged := False;
+        aReason := 'Save failed';
+        Result := False;
+      end;
+      Exit;
+    end;
+
+    // No change needed
     Result := True;
     aChanged := False;
     aReason := 'UTF-8 OK';
-    exit;
+    Exit;
   end;
 
   // Mixed encodings possible: split by raw CR/LF bytes, decode per line.
@@ -492,7 +527,7 @@ begin
   end;
 end;
 
-class function TEncodingFixTool.ShowHelp: integer;
+function TEncodingFixTool.ShowHelp: integer;
 const
   HELP_TEXT: PChar =
     'Delphi *.pas Encoding Fix Tool' + sLineBreak +
@@ -528,7 +563,7 @@ begin
   Result := 0;
 end;
 
-class function TEncodingFixTool.ParseCommandLine(out aOptions: TOptions): integer;
+function TEncodingFixTool.ParseCommandLine(out aOptions: TOptions): integer;
 var
   i: integer;
   p, Key, Val: string;
@@ -652,6 +687,7 @@ end;
 
 class function TEncodingFixTool.RunFromCommandLine: integer;
 var
+  lTool: TEncodingFixTool;
   lOptions: TOptions;
   lParseRes: integer;
   lFiles: TArray<string>;
@@ -660,13 +696,14 @@ var
   lSilent: boolean;
   lVerbose: boolean;
 begin
-
   Result := 0;
 
-  lParseRes := ParseCommandLine(lOptions);
+  gc(lTool, TEncodingFixTool.Create);
+
+  lParseRes := lTool.ParseCommandLine(lOptions);
   if lParseRes >= 0 then
   begin
-    exit(lParseRes); // help shown or early exit
+    Exit(lParseRes); // help shown or early exit
   end;
 
   lSilent := lOptions.Silent;
@@ -678,7 +715,7 @@ begin
     begin
       TSafeConsole.WriteLine('ERROR: path not found: ' + lOptions.Path);
     end;
-    exit(2);
+    Exit(2);
   end;
 
   if (lOptions.BackupDir <> '') and (not TDirectory.Exists(lOptions.BackupDir)) then
@@ -687,14 +724,17 @@ begin
     TDirectory.CreateDirectory(lOptions.BackupDir);
   end;
 
-  lFiles := CollectFiles(lOptions);
-  if (length(lFiles) = 0) and (not lSilent) then
+  // Prepare fast extension lookup
+  lTool.PrepareExtIndex(lOptions.Exts);
+
+  lFiles := lTool.CollectFiles(lOptions);
+  if (Length(lFiles) = 0) and (not lSilent) then
   begin
     TSafeConsole.WriteLine('No files found.');
   end;
 
   lChangedCount := 0;
-  lStopwatch := TStopWatch.startNew;
+  lStopwatch := TStopWatch.StartNew;
 
   TParallel.&For(0, High(lFiles),
     procedure(const idx: integer)
@@ -709,7 +749,7 @@ begin
       lLocalChanged := 0;
 
       try
-        if FixFile(lFile, lOptions, lChanged, lReason) then
+        if lTool.FixFile(lFile, lOptions, lChanged, lReason) then
         begin
           if lChanged then
           begin
@@ -748,9 +788,9 @@ begin
         TInterlocked.Add(lChangedCount, lLocalChanged);
       end;
     end
-    );
+  );
 
-  lStopwatch.stop;
+  lStopwatch.Stop;
 
   if not lSilent then
   begin
