@@ -462,10 +462,14 @@ begin
 
     if aOptions.DryRun then
     begin
-      if (aOptions.Utf8Bom and (not lHasBOM)) or ((not aOptions.Utf8Bom) and lHasBOM) then
+      if (aOptions.Utf8Bom and (not lHasBOM)) then
       begin
         aChanged := True;
-        aReason := 'Would adjust BOM (dry-run)';
+        aReason := 'Would add UTF-8 BOM (dry-run)';
+      end else if ((not aOptions.Utf8Bom) and lHasBOM) then
+      begin
+        aChanged := True;
+        aReason := 'Would remove UTF-8 BOM (dry-run)';
       end else
       begin
         aChanged := False;
@@ -488,7 +492,7 @@ begin
       if SaveTextUTF8(aFile, lText, aOptions.Utf8Bom) then
       begin
         aChanged := True;
-        aReason := 'Adjusted BOM';
+        aReason := IfThen(aOptions.Utf8Bom and (not lHasBOM), 'Added UTF-8 BOM', 'Removed UTF-8 BOM');
         Result := True;
       end else
       begin
@@ -580,7 +584,9 @@ begin
   if aOptions.DryRun then
   begin
     aChanged := True;
-    aReason := 'Would fix (dry-run)';
+    aReason := Format('Non-UTF8/mixed bytes; would save UTF-8 (BOM=%s, EOL=%s) (dry-run)',
+      [IfThen(aOptions.Utf8Bom, 'Y', 'N'),
+       IfThen(lEOL = #13#10, 'CRLF', IfThen(lEOL = #10, 'LF', 'CR'))]);
     Result := True;
     exit;
   end;
@@ -598,7 +604,9 @@ begin
   if SaveTextUTF8(aFile, lFixedLines.ToString, aOptions.Utf8Bom) then
   begin
     aChanged := True;
-    aReason := 'Fixed & saved';
+    aReason := Format('Non-UTF8/mixed bytes; saved UTF-8 (BOM=%s, EOL=%s)',
+      [IfThen(aOptions.Utf8Bom, 'Y', 'N'),
+       IfThen(lEOL = #13#10, 'CRLF', IfThen(lEOL = #10, 'LF', 'CR'))]);
     Result := True;
   end else
   begin
