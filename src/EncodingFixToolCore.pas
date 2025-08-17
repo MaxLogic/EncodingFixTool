@@ -25,11 +25,11 @@ interface
 uses
   System.SysUtils,
   System.Classes,
-  System.generics.collections,
+  System.Generics.Collections,
   System.Types,
   System.IOUtils,
   System.SyncObjs,
-  System.diagnostics,
+  System.Diagnostics,
   System.StrUtils,
   System.Character,
   System.Threading;
@@ -66,7 +66,6 @@ type
     function ShowHelp: integer;
     function NormalizeExtList(const aCSV: string): TArray<string>;
     function CollectFiles(const aOptions: TOptions): TArray<string>;
-    function HasWantedExt(const aFile: string; const aExts: TArray<string>): boolean;
 
     // Encoding helpers
     function IsUtf8Strict(const aBytes: TBytes): boolean;
@@ -176,75 +175,46 @@ begin
   end;
 end;
 
-function TEncodingFixTool.HasWantedExt(const aFile: string; const aExts: TArray<string>): boolean;
-var
-  lExt: string;
-begin
-  // Optimized: use precomputed list of wanted extensions for O(log N) lookup.
-  lExt := LowerCase(ExtractFileExt(aFile));
-  Result := fWantedExts.IndexOf(lExt) >= 0;
-end;
-
 function TEncodingFixTool.CollectFiles(const aOptions: TOptions): TArray<string>;
 var
   lFiles: TList<string>;
   lSearchOpt: TSearchOption;
-  lAll: TArray<string>;
-  f: string;
+  ext, pat: string;
 begin
-  lFiles := TList<string>.Create;
-  gc(lFiles);
+  gc(lFiles, TList<string>.Create);
 
   if aOptions.Recursive then
-  begin
-    lSearchOpt := TSearchOption.soAllDirectories;
-  end else
-  begin
+    lSearchOpt := TSearchOption.soAllDirectories
+  else
     lSearchOpt := TSearchOption.soTopDirectoryOnly;
-  end;
 
-  lAll := TDirectory.GetFiles(aOptions.Path, '*.*', lSearchOpt);
-  for f in lAll do
+  for ext in fWantedExts do
   begin
-    if HasWantedExt(f, aOptions.Exts) then
-    begin
-      lFiles.Add(f);
-    end;
+    pat := '*' + ext; // e.g. ".pas" -> "*.pas"
+    lFiles.AddRange(TDirectory.GetFiles(aOptions.Path, pat, lSearchOpt));
   end;
 
   Result := lFiles.ToArray;
-
 end;
 
 function TEncodingFixTool.IsUtf8Strict(const aBytes: TBytes): boolean;
 var
-  lUTF8: TEncoding;
   lBom: TBytes;
-  lBytesNoBom, lRound: TBytes;
   lHasBom: Boolean;
-  s: string;
+  lBytesNoBom: TBytes;
 begin
-  lUTF8 := TEncoding.UTF8;
-
-  lBom := lUTF8.GetPreamble;
-  lHasBom := (Length(aBytes) >= Length(lBom)) and
-             ((Length(lBom) = 0) or CompareMem(@aBytes[0], @lBom[0], Length(lBom)));
+  lBom := TEncoding.UTF8.GetPreamble;
+  lHasBom := (Length(aBytes) >= Length(lBom)) and CompareMem(@aBytes[0], @lBom[0], Length(lBom));
 
   if lHasBom then
-  begin
-    SetLength(lBytesNoBom, Length(aBytes) - Length(lBom));
-    if Length(lBytesNoBom) > 0 then
-      Move(aBytes[Length(lBom)], lBytesNoBom[0], Length(lBytesNoBom));
-  end else
-  begin
-    lBytesNoBom := Copy(aBytes, 0, Length(aBytes));
-  end;
+    lBytesNoBom := Copy(aBytes, Length(lBom), Length(aBytes) - Length(lBom))
+  else
+    lBytesNoBom := aBytes;
 
-  // Round-trip: decode and re-encode. If bytes match exactly, treat as strict UTF-8.
-  s := lUTF8.GetString(lBytesNoBom);
-  lRound := lUTF8.GetBytes(s);
-  Result := (Length(lRound) = Length(lBytesNoBom)) and
-            ((Length(lRound) = 0) or CompareMem(@lRound[0], @lBytesNoBom[0], Length(lBytesNoBom)));
+  if Length(lBytesNoBom) = 0 then
+    Exit(True);
+
+  Result := TUTF8Encoding.IsBufferValid(Pointer(lBytesNoBom), Length(lBytesNoBom));
 end;
 
 function TEncodingFixTool.SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
@@ -490,6 +460,14 @@ begin
 
     if (aOptions.Utf8Bom and (not lHasBOM)) or ((not aOptions.Utf8Bom) and lHasBOM) then
     begin
+      if aOptions.BackupDir <> '' then
+      begin
+        lRoot := IncludeTrailingPathDelimiter(ExpandFileName(aOptions.Path));
+        lBackupPath := MakeBackupPath(aOptions, lRoot, aFile);
+        TDirectory.CreateDirectory(ExtractFileDir(lBackupPath));
+        TFile.Copy(aFile, lBackupPath, True);
+      end;
+
       if SaveTextUTF8(aFile, lText, aOptions.Utf8Bom) then
       begin
         aChanged := True;
@@ -833,7 +811,9 @@ begin
         TInterlocked.Add(lChangedCount, lLocalChanged);
       end;
     end;
-  TParallel.&For(0, High(lFiles), lLoopProc);
+
+  if Length(lFiles) > 0 then
+    TParallel.&For(0, High(lFiles), lLoopProc);
 
   lStopwatch.Stop;
 
