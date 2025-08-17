@@ -162,7 +162,8 @@ begin
   SetLength(Result, length(lParts));
   for i := 0 to High(lParts) do
   begin
-    s := Trim(LowerCase(lParts[i]));
+    s := lParts[i].ToLower
+      .Trim([' ', '"', '''']);
     if s.StartsWith('*.') then
     begin
       s := s.Substring(1); // "*.pas" -> ".pas"
@@ -734,6 +735,7 @@ begin
     begin
       if Val <> '' then
       begin
+        Val := Val.Trim([' ', '"', '''']); // remove outer quotes
         aOptions.Exts := NormalizeExtList(Val);
       end;
     end else
