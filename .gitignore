@@ -83,3 +83,4 @@ modules/
 .aider*
 .agents/
 /bin/*.cmds
+/dist/
