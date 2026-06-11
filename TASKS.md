@@ -3,31 +3,12 @@
 Next task ID: T-007
 
 ## Summary
-Open tasks: 2 (In Progress: 0, Next Today: 2, Next This Week: 0, Next Later: 0, Blocked: 0)
-Done tasks: 4
+Open tasks: 1 (In Progress: 0, Next Today: 1, Next This Week: 0, Next Later: 0, Blocked: 0)
+Done tasks: 5
 
 ## In Progress
 
 ## Next - Today
-
-### T-005 [DOC] Create EncodingFix agent skill
-Outcome:
-- A repo-local skill exists under `agent-skill/` with a `SKILL.md` that teaches AI agents when and how to use EncodingFixTool for Delphi cleanup.
-- The skill instructs agents to prefer the AI workflow command after Delphi edits, especially for CRLF and encoding repair caused by code generation tools.
-- The skill documents safe defaults, dry-run/check behavior, changed-file scope, JSON summary output, and when not to run the tool.
-- The skill includes a concise install/use note so it can be copied into an agent skill directory without needing repo-specific context.
-Proof:
-- Run: `Test-Path .\agent-skill\SKILL.md`
-  Expect: exit=0 and result is `True`
-- Run: `Select-String -Path .\agent-skill\SKILL.md -Pattern 'preset=delphi-ai','scope=git-changed','format=json','CRLF','Delphi'`
-  Expect: exit=0 and all patterns are found
-- Run: `python -c "from pathlib import Path; p=Path('agent-skill/SKILL.md'); b=p.read_bytes(); assert b.count(b'\n') == b.count(b'\r\n')"`
-  Expect: exit=0
-Touches: agent-skill/SKILL.md
-Deps: T-003
-Verify: cli-proof
-Ceremony: reduced
-Notes: This is documentation/agent-instruction work only; no source behavior changes.
 
 ### T-006 [DOC] Refresh README for workflow and presets
 Outcome:
@@ -53,6 +34,36 @@ Notes: Do after the CLI tasks or explicitly mark unreleased sections if document
 ## Blocked
 
 ## Done
+
+### T-005 [DOC] Create EncodingFix agent skill
+Completed: 2026-06-11
+Outcome:
+- A repo-local skill exists under `agent-skill/` with a `SKILL.md` that teaches AI agents when and how to use EncodingFixTool for Delphi cleanup.
+- The skill instructs agents to prefer the AI workflow command after Delphi edits, especially for CRLF and encoding repair caused by code generation tools.
+- The skill documents safe defaults, dry-run/check behavior, changed-file scope, JSON summary output, and when not to run the tool.
+- The skill includes a concise install/use note so it can be copied into an agent skill directory without needing repo-specific context.
+Proof:
+- PASS: `Test-Path .\agent-skill\SKILL.md`
+  Result: `True`
+- PASS: `Select-String -Path .\agent-skill\SKILL.md -Pattern 'preset=delphi-ai','scope=git-changed','format=json','CRLF','Delphi'`
+  Result: all patterns found
+- PASS: `python -c "from pathlib import Path; p=Path('agent-skill/SKILL.md'); b=p.read_bytes(); assert b.count(b'\n') == b.count(b'\r\n')"`
+  Result: exit=0
+- PASS: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
+  Result: exit=0, zero warnings, zero errors
+- PASS: `.\bin\EncodingFixTool.Tests.exe`
+  Result: exit=0, 30 passed, 0 failed
+- PASS: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
+  Result: exit=0, output contains `EncodingFixTool CLI tests passed.`
+- PASS: `& 'F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe' build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Win32 --config Debug --target Build --ai`
+  Result: success
+- PASS: `& 'F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe' build --project tests\EncodingFixTool.Tests.dproj --delphi 23.0 --platform Win32 --config Debug --target Build --ai`
+  Result: success
+Touches: agent-skill/SKILL.md, CHANGELOG.md
+Deps: T-003
+Verify: cli-proof
+Ceremony: reduced
+Notes: Documentation-only task; strict RED/GREEN production-code TDD does not apply. Subagent acceptance audit returned REVISE for dry-run/check and rewrite-safety wording; both findings were fixed before completion.
 
 ### T-004 [CLI] Add configurable presets
 Completed: 2026-06-11
