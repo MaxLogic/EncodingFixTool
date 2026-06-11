@@ -1,0 +1,413 @@
+﻿unit EncodingFixTool.IntegrationTests;
+
+interface
+
+uses
+  System.SysUtils,
+  DUnitX.TestFramework;
+
+type
+  [TestFixture]
+  TEncodingFixToolIntegrationTests = class
+  private
+    class function AppendBytes(const aLeft, aRight: TBytes): TBytes; static;
+    class function BytesOfCP1250(const aText: string): TBytes; static;
+    class function BytesOfUtf16LEWithBom(const aText: string): TBytes; static;
+    class function BytesOfUtf8(const aText: string; aWithBom: Boolean): TBytes; static;
+    class function HasUtf8Bom(const aBytes: TBytes): Boolean; static;
+    class function QuoteArg(const aArg: string): string; static;
+    class function ReadUtf8TextWithoutBom(const aFileName: string): string; static;
+    class function RepoRoot: string; static;
+    class function RunTool(const aRootPath: string; const aArgs: TArray<string>): Cardinal; static;
+    class function ToolPath: string; static;
+    class procedure AssertBytesEqual(const aExpected, aActual: TBytes); static;
+    class function WriteBytes(const aRootPath, aRelativeFileName: string; const aBytes: TBytes): string; static;
+    class procedure DeleteTree(const aPath: string); static;
+    class procedure RequireTool; static;
+  public
+    [Test]
+    procedure AddsUtf8BomToNonAsciiUtf8File;
+
+    [Test]
+    procedure RemovesUtf8BomWhenRequested;
+
+    [Test]
+    procedure LeavesAsciiFilesWithoutBom;
+
+    [Test]
+    procedure ConvertsUtf16LEFileToUtf8;
+
+    [Test]
+    procedure RepairsCP1250FileToUtf8;
+
+    [Test]
+    procedure RepairsMixedUtf8AndCP1250Lines;
+
+    [Test]
+    procedure CreatesBackupBeforeOverwriting;
+
+    [Test]
+    procedure RejectsInvalidBooleanOption;
+
+    [Test]
+    procedure MissingPathReturnsExitCodeTwo;
+  end;
+
+implementation
+
+uses
+  Winapi.Windows,
+  System.IOUtils,
+  DUnitX.Assert;
+
+const
+  cUtf8Bom0 = Byte($EF);
+  cUtf8Bom1 = Byte($BB);
+  cUtf8Bom2 = Byte($BF);
+
+class function TEncodingFixToolIntegrationTests.AppendBytes(const aLeft, aRight: TBytes): TBytes;
+begin
+  SetLength(Result, Length(aLeft) + Length(aRight));
+  if Length(aLeft) > 0 then
+  begin
+    Move(aLeft[0], Result[0], Length(aLeft));
+  end;
+  if Length(aRight) > 0 then
+  begin
+    Move(aRight[0], Result[Length(aLeft)], Length(aRight));
+  end;
+end;
+
+class procedure TEncodingFixToolIntegrationTests.AssertBytesEqual(const aExpected, aActual: TBytes);
+var
+  i: Integer;
+begin
+  Assert.AreEqual(Length(aExpected), Length(aActual), 'Byte array length mismatch.');
+  for i := 0 to High(aExpected) do
+  begin
+    Assert.AreEqual(Integer(aExpected[i]), Integer(aActual[i]), Format('Byte mismatch at index %d.', [i]));
+  end;
+end;
+
+class function TEncodingFixToolIntegrationTests.BytesOfCP1250(const aText: string): TBytes;
+var
+  lEncoding: TEncoding;
+begin
+  lEncoding := TEncoding.GetEncoding(1250);
+  try
+    Result := lEncoding.GetBytes(aText);
+  finally
+    lEncoding.Free;
+  end;
+end;
+
+class function TEncodingFixToolIntegrationTests.BytesOfUtf16LEWithBom(const aText: string): TBytes;
+var
+  lBom: TBytes;
+  lContent: TBytes;
+begin
+  SetLength(lBom, 2);
+  lBom[0] := $FF;
+  lBom[1] := $FE;
+  lContent := TEncoding.Unicode.GetBytes(aText);
+  Result := AppendBytes(lBom, lContent);
+end;
+
+class function TEncodingFixToolIntegrationTests.BytesOfUtf8(const aText: string; aWithBom: Boolean): TBytes;
+var
+  lBom: TBytes;
+  lContent: TBytes;
+begin
+  lContent := TEncoding.UTF8.GetBytes(aText);
+  if not aWithBom then
+  begin
+    Exit(lContent);
+  end;
+
+  SetLength(lBom, 3);
+  lBom[0] := cUtf8Bom0;
+  lBom[1] := cUtf8Bom1;
+  lBom[2] := cUtf8Bom2;
+  Result := AppendBytes(lBom, lContent);
+end;
+
+class procedure TEncodingFixToolIntegrationTests.DeleteTree(const aPath: string);
+begin
+  if TDirectory.Exists(aPath) then
+  begin
+    TDirectory.Delete(aPath, True);
+  end;
+end;
+
+class function TEncodingFixToolIntegrationTests.HasUtf8Bom(const aBytes: TBytes): Boolean;
+begin
+  Result := (Length(aBytes) >= 3) and (aBytes[0] = cUtf8Bom0) and (aBytes[1] = cUtf8Bom1) and
+    (aBytes[2] = cUtf8Bom2);
+end;
+
+class function TEncodingFixToolIntegrationTests.ReadUtf8TextWithoutBom(const aFileName: string): string;
+var
+  lBytes: TBytes;
+begin
+  lBytes := TFile.ReadAllBytes(aFileName);
+  if HasUtf8Bom(lBytes) then
+  begin
+    lBytes := Copy(lBytes, 3, Length(lBytes) - 3);
+  end;
+  Result := TEncoding.UTF8.GetString(lBytes);
+end;
+
+class function TEncodingFixToolIntegrationTests.RepoRoot: string;
+begin
+  Result := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..'));
+end;
+
+class procedure TEncodingFixToolIntegrationTests.RequireTool;
+begin
+  Assert.IsTrue(TFile.Exists(ToolPath), 'Build EncodingFixTool.exe before running integration tests: ' + ToolPath);
+end;
+
+class function TEncodingFixToolIntegrationTests.QuoteArg(const aArg: string): string;
+begin
+  Result := '"' + StringReplace(aArg, '"', '\"', [rfReplaceAll]) + '"';
+end;
+
+class function TEncodingFixToolIntegrationTests.RunTool(const aRootPath: string; const aArgs: TArray<string>): Cardinal;
+var
+  i: Integer;
+  lCommandLine: string;
+  lProcessInformation: TProcessInformation;
+  lStartupInfo: TStartupInfo;
+  lWaitResult: Cardinal;
+begin
+  RequireTool;
+
+  lCommandLine := QuoteArg(ToolPath);
+  if aRootPath <> '' then
+  begin
+    lCommandLine := lCommandLine + ' ' + QuoteArg('path=' + aRootPath);
+  end;
+  for i := 0 to High(aArgs) do
+  begin
+    lCommandLine := lCommandLine + ' ' + QuoteArg(aArgs[i]);
+  end;
+
+  ZeroMemory(@lProcessInformation, SizeOf(lProcessInformation));
+  ZeroMemory(@lStartupInfo, SizeOf(lStartupInfo));
+  lStartupInfo.cb := SizeOf(lStartupInfo);
+
+  if not CreateProcess(nil, PChar(lCommandLine), nil, nil, False, CREATE_NO_WINDOW, nil, PChar(RepoRoot),
+    lStartupInfo, lProcessInformation) then
+  begin
+    RaiseLastOSError;
+  end;
+  try
+    lWaitResult := WaitForSingleObject(lProcessInformation.hProcess, 30000);
+    if lWaitResult <> WAIT_OBJECT_0 then
+    begin
+      TerminateProcess(lProcessInformation.hProcess, 1);
+      Assert.Fail('EncodingFixTool.exe timed out.');
+    end;
+    if not GetExitCodeProcess(lProcessInformation.hProcess, Result) then
+    begin
+      RaiseLastOSError;
+    end;
+  finally
+    CloseHandle(lProcessInformation.hThread);
+    CloseHandle(lProcessInformation.hProcess);
+  end;
+end;
+
+class function TEncodingFixToolIntegrationTests.ToolPath: string;
+begin
+  Result := TPath.Combine(RepoRoot, 'bin\EncodingFixTool.exe');
+end;
+
+class function TEncodingFixToolIntegrationTests.WriteBytes(const aRootPath, aRelativeFileName: string;
+  const aBytes: TBytes): string;
+begin
+  Result := TPath.Combine(aRootPath, aRelativeFileName);
+  TDirectory.CreateDirectory(ExtractFilePath(Result));
+  TFile.WriteAllBytes(Result, aBytes);
+end;
+
+procedure TEncodingFixToolIntegrationTests.AddsUtf8BomToNonAsciiUtf8File;
+var
+  lBytes: TBytes;
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'utf8-no-bom.pas', BytesOfUtf8('unit Demo; const S = ''zażółć'';', False));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 's'])));
+
+    lBytes := TFile.ReadAllBytes(lFileName);
+    Assert.IsTrue(HasUtf8Bom(lBytes), 'Expected UTF-8 BOM to be added.');
+    Assert.AreEqual('unit Demo; const S = ''zażółć'';', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.CreatesBackupBeforeOverwriting;
+var
+  lBackupFileName: string;
+  lBackupPath: string;
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  lBackupPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-Backup-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'nested\legacy.pas', BytesOfCP1250('unit Demo; const S = ''zażółć'';'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=y', 'ext=pas', 's', 'bkp-dir=' + lBackupPath])));
+
+    lBackupFileName := TPath.Combine(lBackupPath, 'nested\legacy.pas');
+    Assert.IsTrue(TFile.Exists(lBackupFileName), 'Expected backup file.');
+    AssertBytesEqual(BytesOfCP1250('unit Demo; const S = ''zażółć'';'), TFile.ReadAllBytes(lBackupFileName));
+    Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Expected fixed file to be UTF-8 with BOM.');
+  finally
+    DeleteTree(lRootPath);
+    DeleteTree(lBackupPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.ConvertsUtf16LEFileToUtf8;
+var
+  lBytes: TBytes;
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'utf16le.pas', BytesOfUtf16LEWithBom('unit Demo; const S = ''zażółć'';'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 's'])));
+
+    lBytes := TFile.ReadAllBytes(lFileName);
+    Assert.IsTrue(HasUtf8Bom(lBytes), 'Expected UTF-8 BOM after conversion.');
+    Assert.AreEqual('unit Demo; const S = ''zażółć'';', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.LeavesAsciiFilesWithoutBom;
+var
+  lBytes: TBytes;
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'ascii.pas', TEncoding.ASCII.GetBytes('unit Demo; interface end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 's'])));
+
+    lBytes := TFile.ReadAllBytes(lFileName);
+    Assert.IsFalse(HasUtf8Bom(lBytes), 'ASCII files must stay BOM-free.');
+    Assert.AreEqual('unit Demo; interface end.', TEncoding.ASCII.GetString(lBytes));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.MissingPathReturnsExitCodeTwo;
+var
+  lMissingPath: string;
+begin
+  lMissingPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-Missing-' + TGuid.NewGuid.ToString);
+
+  Assert.AreEqual(2, Integer(RunTool(lMissingPath, ['recursive=n', 'ext=pas', 's'])));
+end;
+
+procedure TEncodingFixToolIntegrationTests.RejectsInvalidBooleanOption;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'unchanged.pas', BytesOfUtf8('unit Demo; const S = ''zażółć'';', False));
+
+    Assert.AreEqual(1, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 'utf8-bom=maybe', 's'])));
+
+    Assert.IsFalse(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Invalid options must not rewrite files.');
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.RemovesUtf8BomWhenRequested;
+var
+  lBytes: TBytes;
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'utf8-bom.pas', BytesOfUtf8('unit Demo; const S = ''zażółć'';', True));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 'utf8-bom=n', 's'])));
+
+    lBytes := TFile.ReadAllBytes(lFileName);
+    Assert.IsFalse(HasUtf8Bom(lBytes), 'Expected UTF-8 BOM to be removed.');
+    Assert.AreEqual('unit Demo; const S = ''zażółć'';', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.RepairsCP1250FileToUtf8;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'cp1250.pas', BytesOfCP1250('unit Demo; const S = ''zażółć'';'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 's'])));
+
+    Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Expected rewritten file to have UTF-8 BOM.');
+    Assert.AreEqual('unit Demo; const S = ''zażółć'';', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.RepairsMixedUtf8AndCP1250Lines;
+var
+  lBytes: TBytes;
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lBytes := AppendBytes(BytesOfUtf8('unit Demo;'#13#10, False), BytesOfCP1250('const S = ''zażółć'';'#13#10));
+    lFileName := WriteBytes(lRootPath, 'mixed.pas', lBytes);
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 's'])));
+
+    Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Expected mixed file to be rewritten as UTF-8.');
+    Assert.AreEqual('unit Demo;'#13#10'const S = ''zażółć'';'#13#10, ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+initialization
+  TDUnitX.RegisterTestFixture(TEncodingFixToolIntegrationTests);
+
+end.
