@@ -143,6 +143,28 @@ try {
   $lJson = $lResult.Output | ConvertFrom-Json
   Assert-True (($lJson.scanned -eq 2) -and ($lJson.changed -eq 1) -and ($lJson.skipped -eq 1) -and ($lJson.failed -eq 0)) "Expected compact JSON summary counts for AI workflow."
 
+  $lGlobalRoot = Join-Path $lRoot 'global'
+  New-Item -ItemType Directory -Path $lGlobalRoot | Out-Null
+  [System.IO.File]::WriteAllBytes(
+    (Join-Path $lGlobalRoot 'global.inc'),
+    [System.Text.Encoding]::ASCII.GetBytes("const A = 1;`nend.")
+  )
+  $lAppData = Join-Path $lRoot 'appdata'
+  $lConfigDir = Join-Path $lAppData 'MaxLogic\EncodingFixTool'
+  New-Item -ItemType Directory -Path $lConfigDir -Force | Out-Null
+  Set-Content -LiteralPath (Join-Path $lConfigDir 'config.json') -Encoding UTF8 -Value '{"presets":{"global":{"ext":"inc","eol":"crlf"}}}'
+
+  $lOldAppData = $env:APPDATA
+  try {
+    $env:APPDATA = $lAppData
+    $lResult = Invoke-Tool @("path=$lGlobalRoot", 'preset=global', 's')
+  } finally {
+    $env:APPDATA = $lOldAppData
+  }
+  Assert-True ($lResult.ExitCode -eq 0) "User-global preset config should succeed."
+  $lGlobalBytes = [System.IO.File]::ReadAllBytes((Join-Path $lGlobalRoot 'global.inc'))
+  Assert-True (($lGlobalBytes | Where-Object { $_ -eq 13 }).Count -eq 1) "User-global preset should normalize LF to CRLF."
+
   Write-Host 'EncodingFixTool CLI tests passed.'
 } finally {
   if (Test-Path -LiteralPath $lRoot) {

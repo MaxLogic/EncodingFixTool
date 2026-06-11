@@ -98,6 +98,7 @@ type
 implementation
 
 uses
+  System.JSON,
   System.WideStrUtils,
   Winapi.Windows,
   AutoFree;
@@ -1077,6 +1078,7 @@ const
     '  recursive=y|n         : Recurse into subfolders. Default: y.' + sLineBreak +
     '  ext=<csv>             : Extensions list. Default: pas,dpr. Accepts "pas", ".pas", "*.pas".' + sLineBreak +
     '  preset=delphi-ai      : AI cleanup preset for Delphi projects.' + sLineBreak +
+    '  config=<json>         : Explicit preset config file. Relative paths resolve under path.' + sLineBreak +
     '  scope=all|git-changed : Scan all matching files or only Git modified/untracked files. Default: all.' + sLineBreak +
     '  format=text|json      : Human text output or compact JSON summary. Default: text.' + sLineBreak +
     '  utf8-bom=y|n          : Save with UTF-8 BOM (default: y).' + sLineBreak +
@@ -1105,9 +1107,16 @@ end;
 function TEncodingFixTool.ParseCommandLine(out aOptions: TOptions): integer;
 var
   i: integer;
-  p, Key, Val: string;
-  eqPos: integer;
+  lKey: string;
+  lConfigPath: string;
   lBool: boolean;
+  lError: string;
+  lFoundPreset: boolean;
+  lPresetName: string;
+  lRawConfigPath: string;
+  lRepoConfigPath: string;
+  lUserConfigPath: string;
+  lVal: string;
 
   function FailParse(const aMsg: string): integer;
   begin
@@ -1141,6 +1150,243 @@ var
     end;
   end;
 
+  function ParseArg(aIndex: integer; out aKey, aVal: string): boolean;
+  var
+    lEqPos: integer;
+    p: string;
+  begin
+    p := Trim(ParamStr(aIndex));
+
+    if startsStr('-', p) {$IFDEF MsWindows}or StartsStr('/', p){$ENDIF} then
+      delete(p, 1, 1);
+    if p = '' then
+    begin
+      aKey := '';
+      aVal := '';
+      Exit(False);
+    end;
+
+    lEqPos := p.IndexOf('=');
+    if lEqPos < 0 then
+    begin
+      lEqPos := p.IndexOf(':');
+    end;
+
+    if lEqPos > 0 then
+    begin
+      aKey := LowerCase(Trim(copy(p, 1, lEqPos)));
+      aVal := Trim(copy(p, lEqPos + 2, MaxInt));
+    end else begin
+      aKey := LowerCase(p);
+      aVal := '';
+    end;
+    Result := True;
+  end;
+
+  function ApplyOption(const aKey, aValue: string; out aError: string): boolean;
+  var
+    lValue: string;
+  begin
+    aError := '';
+    Result := True;
+    lValue := aValue;
+
+    if (aKey = 'dry') then
+    begin
+      aOptions.DryRun := True;
+    end else if (aKey = 's') or (aKey = 'silent') then
+    begin
+      aOptions.Silent := True;
+      aOptions.Verbose := False;
+    end else if (aKey = 'v') or (aKey = 'verbose') then
+    begin
+      if not aOptions.Silent then
+      begin
+        aOptions.Verbose := True;
+      end;
+    end else if (aKey = 'path') then
+    begin
+      if lValue <> '' then
+      begin
+        aOptions.Path := ExpandFileName(lValue);
+      end;
+    end else if (aKey = 'recursive') then
+    begin
+      if not TryAsYN(lValue, True, lBool) then
+      begin
+        aError := 'invalid recursive value: ' + lValue;
+        Exit(False);
+      end;
+      aOptions.Recursive := lBool;
+    end else if (aKey = 'ext') then
+    begin
+      if lValue <> '' then
+      begin
+        lValue := lValue.Trim([' ', '"', '''']);
+        aOptions.Exts := NormalizeExtList(lValue);
+      end;
+    end else if (aKey = 'scope') then
+    begin
+      lValue := LowerCase(lValue.Trim);
+      if (lValue = '') or (lValue = 'all') then
+      begin
+        aOptions.ScopeMode := TScopeMode.smAll;
+      end else if lValue = 'git-changed' then
+      begin
+        aOptions.ScopeMode := TScopeMode.smGitChanged;
+      end else begin
+        aError := 'invalid scope value: ' + lValue;
+        Exit(False);
+      end;
+    end else if (aKey = 'format') then
+    begin
+      lValue := LowerCase(lValue.Trim);
+      if (lValue = '') or (lValue = 'text') then
+      begin
+        aOptions.OutputFormat := TOutputFormat.ofText;
+      end else if lValue = 'json' then
+      begin
+        aOptions.OutputFormat := TOutputFormat.ofJson;
+      end else begin
+        aError := 'invalid format value: ' + lValue;
+        Exit(False);
+      end;
+    end else if (aKey = 'utf8-bom') then
+    begin
+      if not TryAsYN(lValue, True, lBool) then
+      begin
+        aError := 'invalid utf8-bom value: ' + lValue;
+        Exit(False);
+      end;
+      aOptions.Utf8Bom := lBool;
+    end else if (aKey = 'eol') then
+    begin
+      lValue := LowerCase(lValue.Trim);
+      if (lValue = '') or (lValue = 'preserve') then
+      begin
+        aOptions.EolMode := TEndOfLineMode.elmPreserve;
+      end else if lValue = 'crlf' then
+      begin
+        aOptions.EolMode := TEndOfLineMode.elmCrlf;
+      end else begin
+        aError := 'invalid eol value: ' + lValue;
+        Exit(False);
+      end;
+    end else if (aKey = 'bkp-dir') then
+    begin
+      if lValue <> '' then
+      begin
+        aOptions.BackupDir := ExpandFileName(lValue);
+      end;
+    end else begin
+      aError := 'unknown parameter: ' + aKey;
+      Result := False;
+    end;
+  end;
+
+  procedure ApplyBuiltInPreset(const aName: string; var aFound: boolean);
+  begin
+    if aName = 'delphi-ai' then
+    begin
+      aOptions.Recursive := True;
+      aOptions.Exts := NormalizeExtList('pas,dpr,dpk,inc,dfm,dproj');
+      aOptions.Utf8Bom := True;
+      aOptions.EolMode := TEndOfLineMode.elmCrlf;
+      aFound := True;
+    end;
+  end;
+
+  function FindRepoConfig: string;
+  var
+    lDir: string;
+    lParent: string;
+    lProbe: string;
+  begin
+    lDir := IncludeTrailingPathDelimiter(ExpandFileName(aOptions.Path));
+    while lDir <> '' do
+    begin
+      lProbe := TPath.Combine(lDir, '.encodingfix.json');
+      if TFile.Exists(lProbe) then
+      begin
+        Exit(lProbe);
+      end;
+      lParent := ExtractFileDir(ExcludeTrailingPathDelimiter(lDir));
+      if SameText(lParent, ExcludeTrailingPathDelimiter(lDir)) then
+      begin
+        Break;
+      end;
+      lDir := IncludeTrailingPathDelimiter(lParent);
+    end;
+    Result := '';
+  end;
+
+  function UserConfigPath: string;
+  var
+    lAppData: string;
+  begin
+    lAppData := GetEnvironmentVariable('APPDATA');
+    if lAppData = '' then
+    begin
+      Exit('');
+    end;
+    Result := TPath.Combine(TPath.Combine(TPath.Combine(lAppData, 'MaxLogic'), 'EncodingFixTool'), 'config.json');
+  end;
+
+  function ApplyPresetFromFile(const aFileName, aPresetName: string; var aFound: boolean; out aError: string): boolean;
+  var
+    g: TGarbos;
+    lJson: TJSONObject;
+    lPair: TJSONPair;
+    lPreset: TJSONObject;
+    lPresets: TJSONObject;
+    lText: string;
+    lValue: TJSONValue;
+  begin
+    aError := '';
+    Result := True;
+    if (aFileName = '') or (not TFile.Exists(aFileName)) then
+    begin
+      Exit(True);
+    end;
+
+    lText := TFile.ReadAllText(aFileName, TEncoding.UTF8);
+    lJson := TJSONObject.ParseJSONValue(lText) as TJSONObject;
+    if lJson = nil then
+    begin
+      aError := 'malformed JSON config: ' + aFileName;
+      Exit(False);
+    end;
+    GC(lJson, g);
+
+    lValue := lJson.GetValue('presets');
+    if not (lValue is TJSONObject) then
+    begin
+      Exit(True);
+    end;
+    lPresets := TJSONObject(lValue);
+
+    lValue := lPresets.GetValue(aPresetName);
+    if lValue = nil then
+    begin
+      Exit(True);
+    end;
+    if not (lValue is TJSONObject) then
+    begin
+      aError := 'invalid preset object: ' + aPresetName;
+      Exit(False);
+    end;
+
+    aFound := True;
+    lPreset := TJSONObject(lValue);
+    for lPair in lPreset do
+    begin
+      if not ApplyOption(LowerCase(lPair.JsonString.Value), lPair.JsonValue.Value, aError) then
+      begin
+        Exit(False);
+      end;
+    end;
+  end;
+
 begin
   // Defaults
   aOptions.DryRun := False;
@@ -1154,136 +1400,84 @@ begin
   aOptions.OutputFormat := TOutputFormat.ofText;
   aOptions.ScopeMode := TScopeMode.smAll;
   aOptions.BackupDir := '';
+  lConfigPath := '';
+  lPresetName := '';
+  lRawConfigPath := '';
 
-  // Parse
+  // First pass: path/config/preset are needed before preset resolution.
   for i := 1 to ParamCount do
   begin
-    p := Trim(ParamStr(i));
-
-    // allow for "-" or "/" param prefixes
-    if startsStr('-', p) {$IFDEF MsWindows}or StartsStr('/', p){$ENDIF} then
-      delete(p, 1, 1);
-    if p = '' then
+    if not ParseArg(i, lKey, lVal) then
     begin
       Continue;
     end;
-
-
-    // allow "key=value" or "key:value" or single flag
-    eqPos := p.IndexOf('=');
-    if eqPos < 0 then
-    begin
-      eqPos := p.IndexOf(':');
-    end;
-
-    if eqPos > 0 then
-    begin
-      Key := LowerCase(Trim(copy(p, 1, eqPos)));
-      Val := Trim(copy(p, eqPos + 2, MaxInt));
-    end else begin
-      Key := LowerCase(p);
-      Val := '';
-    end;
-
-    if (Key = 'help') or (Key = 'h') then
+    if (lKey = 'help') or (lKey = 'h') then
     begin
       exit(ShowHelp);
-    end else if (Key = 'dry') then
+    end else if (lKey = 'path') then
     begin
-      aOptions.DryRun := True;
-    end else if (Key = 's') or (Key = 'silent') then
-    begin
-      aOptions.Silent := True;
-      aOptions.Verbose := False;
-    end else if (Key = 'v') or (Key = 'verbose') then
-    begin
-      if not aOptions.Silent then
+      if not ApplyOption(lKey, lVal, lError) then
       begin
-        aOptions.Verbose := True;
+        exit(FailParse(lError));
       end;
-    end else if (Key = 'path') then
+    end else if lKey = 'config' then
     begin
-      if Val <> '' then
+      if lVal <> '' then
       begin
-        aOptions.Path := ExpandFileName(Val);
+        lRawConfigPath := lVal.Trim([' ', '"', '''']); // remove outer quotes
       end;
-    end else if (Key = 'recursive') then
+    end else if lKey = 'preset' then
     begin
-      if not TryAsYN(Val, True, lBool) then
-      begin
-        exit(FailParse('invalid recursive value: ' + Val));
-      end;
-      aOptions.Recursive := lBool;
-    end else if (Key = 'ext') then
+      lPresetName := LowerCase(lVal.Trim);
+    end;
+  end;
+
+  if lRawConfigPath <> '' then
+  begin
+    if TPath.IsPathRooted(lRawConfigPath) then
+      lConfigPath := lRawConfigPath
+    else
+      lConfigPath := TPath.Combine(aOptions.Path, lRawConfigPath);
+  end;
+
+  if lPresetName <> '' then
+  begin
+    lFoundPreset := False;
+    ApplyBuiltInPreset(lPresetName, lFoundPreset);
+    lUserConfigPath := UserConfigPath;
+    if not ApplyPresetFromFile(lUserConfigPath, lPresetName, lFoundPreset, lError) then
     begin
-      if Val <> '' then
-      begin
-        Val := Val.Trim([' ', '"', '''']); // remove outer quotes
-        aOptions.Exts := NormalizeExtList(Val);
-      end;
-    end else if (Key = 'preset') then
+      exit(FailParse(lError));
+    end;
+    lRepoConfigPath := FindRepoConfig;
+    if not ApplyPresetFromFile(lRepoConfigPath, lPresetName, lFoundPreset, lError) then
     begin
-      Val := LowerCase(Val.Trim);
-      if Val = 'delphi-ai' then
-      begin
-        aOptions.Recursive := True;
-        aOptions.Exts := NormalizeExtList('pas,dpr,dpk,inc,dfm,dproj');
-        aOptions.Utf8Bom := True;
-        aOptions.EolMode := TEndOfLineMode.elmCrlf;
-      end else begin
-        exit(FailParse('invalid preset value: ' + Val));
-      end;
-    end else if (Key = 'scope') then
+      exit(FailParse(lError));
+    end;
+    if not ApplyPresetFromFile(lConfigPath, lPresetName, lFoundPreset, lError) then
     begin
-      Val := LowerCase(Val.Trim);
-      if (Val = '') or (Val = 'all') then
-      begin
-        aOptions.ScopeMode := TScopeMode.smAll;
-      end else if Val = 'git-changed' then
-      begin
-        aOptions.ScopeMode := TScopeMode.smGitChanged;
-      end else begin
-        exit(FailParse('invalid scope value: ' + Val));
-      end;
-    end else if (Key = 'format') then
+      exit(FailParse(lError));
+    end;
+    if not lFoundPreset then
     begin
-      Val := LowerCase(Val.Trim);
-      if (Val = '') or (Val = 'text') then
-      begin
-        aOptions.OutputFormat := TOutputFormat.ofText;
-      end else if Val = 'json' then
-      begin
-        aOptions.OutputFormat := TOutputFormat.ofJson;
-      end else begin
-        exit(FailParse('invalid format value: ' + Val));
-      end;
-    end else if (Key = 'utf8-bom') then
+      exit(FailParse('invalid preset value: ' + lPresetName));
+    end;
+  end;
+
+  // Second pass: explicit CLI args override defaults and presets regardless of order.
+  for i := 1 to ParamCount do
+  begin
+    if not ParseArg(i, lKey, lVal) then
     begin
-      if not TryAsYN(Val, True, lBool) then
-      begin
-        exit(FailParse('invalid utf8-bom value: ' + Val));
-      end;
-      aOptions.Utf8Bom := lBool;
-    end else if (Key = 'eol') then
+      Continue;
+    end;
+    if (lKey = 'help') or (lKey = 'h') or (lKey = 'preset') or (lKey = 'config') then
     begin
-      Val := LowerCase(Val.Trim);
-      if (Val = '') or (Val = 'preserve') then
-      begin
-        aOptions.EolMode := TEndOfLineMode.elmPreserve;
-      end else if Val = 'crlf' then
-      begin
-        aOptions.EolMode := TEndOfLineMode.elmCrlf;
-      end else begin
-        exit(FailParse('invalid eol value: ' + Val));
-      end;
-    end else if (Key = 'bkp-dir') then
+      Continue;
+    end;
+    if not ApplyOption(lKey, lVal, lError) then
     begin
-      if Val <> '' then
-      begin
-        aOptions.BackupDir := ExpandFileName(Val);
-      end;
-    end else begin
-      exit(FailParse('unknown parameter: ' + Key));
+      exit(FailParse(lError));
     end;
   end;
 

@@ -3,8 +3,8 @@
 Next task ID: T-007
 
 ## Summary
-Open tasks: 3 (In Progress: 0, Next Today: 3, Next This Week: 0, Next Later: 0, Blocked: 0)
-Done tasks: 3
+Open tasks: 2 (In Progress: 0, Next Today: 2, Next This Week: 0, Next Later: 0, Blocked: 0)
+Done tasks: 4
 
 ## In Progress
 
@@ -46,25 +46,6 @@ Verify: cli-proof
 Ceremony: reduced
 Notes: Do after the CLI tasks or explicitly mark unreleased sections if documenting ahead of implementation.
 
-### T-004 [CLI] Add configurable presets
-Outcome:
-- The CLI loads user-defined presets from JSON configuration in a predictable precedence order: CLI args, explicit `config=...`, repo config, user config, built-in defaults.
-- Repo-local config is discovered from the scan root upward using a documented filename such as `.encodingfix.json`.
-- User-global config is loaded from `%APPDATA%\MaxLogic\EncodingFixTool\config.json` when present.
-- Invalid preset names, malformed JSON, and invalid preset option values fail with clear errors before any files are rewritten.
-- README documents preset configuration, precedence, and at least one Delphi-focused example.
-Proof:
-- Run: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
-  Expect: exit=0, zero warnings, zero errors
-- Run: `.\bin\EncodingFixTool.Tests.exe --include:PresetConfig`
-  Expect: exit=0, all configurable preset tests pass
-- Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
-  Expect: exit=0, output contains `EncodingFixTool CLI tests passed.`
-Touches: src/EncodingFixToolCore.pas, tests/EncodingFixTool.IntegrationTests.pas, tests/Invoke-EncodingFixTool.Tests.ps1, README.md
-Deps: T-003
-Verify: integration-test, cli-proof
-Notes: Prefer JSON via Delphi's built-in JSON support. Do not use side-by-side exe config as the primary location because install directories may be read-only or shared across users.
-
 ## Next - This Week
 
 ## Next - Later
@@ -72,6 +53,32 @@ Notes: Prefer JSON via Delphi's built-in JSON support. Do not use side-by-side e
 ## Blocked
 
 ## Done
+
+### T-004 [CLI] Add configurable presets
+Completed: 2026-06-11
+Outcome:
+- The CLI loads user-defined presets from JSON configuration in a predictable precedence order: CLI args, explicit `config=...`, repo config, user config, built-in defaults.
+- Repo-local config is discovered from the scan root upward using `.encodingfix.json`.
+- User-global config is loaded from `%APPDATA%\MaxLogic\EncodingFixTool\config.json` when present.
+- Invalid preset names, malformed JSON, and invalid preset option values fail with clear errors before any files are rewritten.
+- README documents preset configuration, precedence, and a Delphi-focused example.
+Proof:
+- PASS: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
+  Result: exit=0, zero warnings, zero errors
+- PASS: `.\bin\EncodingFixTool.Tests.exe --include:PresetConfig`
+  Result: exit=0, 8 passed, 0 failed
+- PASS: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
+  Result: exit=0, output contains `EncodingFixTool CLI tests passed.`
+- PASS: `.\bin\EncodingFixTool.Tests.exe`
+  Result: exit=0, 30 passed, 0 failed
+- PASS: `& $env:DAK_EXE build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Win32 --config Debug --target Build --ai`
+  Result: success
+- PASS: `& $env:DAK_EXE build --project tests\EncodingFixTool.Tests.dproj --delphi 23.0 --platform Win32 --config Debug --target Build --ai`
+  Result: success
+Touches: src/EncodingFixToolCore.pas, tests/EncodingFixTool.IntegrationTests.pas, tests/Invoke-EncodingFixTool.Tests.ps1, README.md, CHANGELOG.md
+Deps: T-003
+Verify: integration-test, cli-proof
+Notes: Config JSON supports named presets under `presets`; explicit config overrides repo config, repo config overrides user config, CLI arguments override all config values.
 
 ### T-003 [CLI] Add AI-friendly Delphi cleanup workflow
 Completed: 2026-06-11

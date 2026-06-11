@@ -74,6 +74,38 @@ type
     procedure GitChangedScopeProcessesOnlyChangedFiles;
 
     [Test]
+    [Category('PresetConfig')]
+    procedure ExplicitConfigPresetAppliesToIncludedExtensions;
+
+    [Test]
+    [Category('PresetConfig')]
+    procedure CliArgumentsOverrideConfigPresetRegardlessOfOrder;
+
+    [Test]
+    [Category('PresetConfig')]
+    procedure ExplicitConfigOverridesRepoConfigAndMayAppearBeforePath;
+
+    [Test]
+    [Category('PresetConfig')]
+    procedure RepoConfigOverridesUserConfig;
+
+    [Test]
+    [Category('PresetConfig')]
+    procedure RepoConfigIsDiscoveredFromScanRootParents;
+
+    [Test]
+    [Category('PresetConfig')]
+    procedure InvalidPresetFailsWithoutRewritingFiles;
+
+    [Test]
+    [Category('PresetConfig')]
+    procedure MalformedConfigFailsWithoutRewritingFiles;
+
+    [Test]
+    [Category('PresetConfig')]
+    procedure InvalidPresetOptionFailsWithoutRewritingFiles;
+
+    [Test]
     [Category('LineEnding')]
     procedure DryRunLeavesAsciiLfUnchangedWhenNormalizingEol;
 
@@ -536,6 +568,175 @@ begin
       TFile.ReadAllBytes(lChangedFileName));
     AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#13#10'end.'), TFile.ReadAllBytes(lUntrackedFileName));
     AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Unchanged;'#10'end.'), TFile.ReadAllBytes(lUnchangedFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.ExplicitConfigPresetAppliesToIncludedExtensions;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    WriteBytes(lRootPath, 'encodingfix.json', TEncoding.UTF8.GetBytes('{"presets":{"quick":{"ext":"inc","eol":"crlf"}}}'));
+    lFileName := WriteBytes(lRootPath, 'generated.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['config=encodingfix.json', 'preset=quick', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#13#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.CliArgumentsOverrideConfigPresetRegardlessOfOrder;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    WriteBytes(lRootPath, 'encodingfix.json', TEncoding.UTF8.GetBytes('{"presets":{"quick":{"ext":"inc","eol":"crlf"}}}'));
+    lFileName := WriteBytes(lRootPath, 'generated.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['eol=preserve', 'config=encodingfix.json', 'preset=quick', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.ExplicitConfigOverridesRepoConfigAndMayAppearBeforePath;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    WriteBytes(lRootPath, '.encodingfix.json', TEncoding.UTF8.GetBytes('{"presets":{"shared":{"ext":"inc","eol":"preserve"}}}'));
+    WriteBytes(lRootPath, 'encodingfix.json', TEncoding.UTF8.GetBytes('{"presets":{"shared":{"ext":"inc","eol":"crlf"}}}'));
+    lFileName := WriteBytes(lRootPath, 'generated.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunProcess(QuoteArg(ToolPath) + ' config=encodingfix.json path=' + QuoteArg(lRootPath) +
+      ' preset=shared s', RepoRoot)));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#13#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.RepoConfigOverridesUserConfig;
+var
+  lAppDataPath: string;
+  lConfigDir: string;
+  lFileName: string;
+  lOldAppData: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  lAppDataPath := TPath.Combine(lRootPath, 'appdata');
+  lConfigDir := TPath.Combine(TPath.Combine(TPath.Combine(lAppDataPath, 'MaxLogic'), 'EncodingFixTool'), '');
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    TDirectory.CreateDirectory(lConfigDir);
+    WriteBytes(lConfigDir, 'config.json', TEncoding.UTF8.GetBytes('{"presets":{"shared":{"ext":"inc","eol":"preserve"}}}'));
+    WriteBytes(lRootPath, '.encodingfix.json', TEncoding.UTF8.GetBytes('{"presets":{"shared":{"ext":"inc","eol":"crlf"}}}'));
+    lFileName := WriteBytes(lRootPath, 'generated.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'));
+
+    lOldAppData := GetEnvironmentVariable('APPDATA');
+    SetEnvironmentVariable('APPDATA', PChar(lAppDataPath));
+    try
+      Assert.AreEqual(0, Integer(RunTool(lRootPath, ['preset=shared', 's'])));
+    finally
+      SetEnvironmentVariable('APPDATA', PChar(lOldAppData));
+    end;
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#13#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.RepoConfigIsDiscoveredFromScanRootParents;
+var
+  lFileName: string;
+  lNestedPath: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  lNestedPath := TPath.Combine(lRootPath, 'src\nested');
+  TDirectory.CreateDirectory(lNestedPath);
+  try
+    WriteBytes(lRootPath, '.encodingfix.json', TEncoding.UTF8.GetBytes('{"presets":{"repo":{"ext":"inc","eol":"crlf"}}}'));
+    lFileName := WriteBytes(lNestedPath, 'generated.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lNestedPath, ['preset=repo', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#13#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.InvalidPresetFailsWithoutRewritingFiles;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    WriteBytes(lRootPath, '.encodingfix.json', TEncoding.UTF8.GetBytes('{"presets":{"repo":{"ext":"inc","eol":"crlf"}}}'));
+    lFileName := WriteBytes(lRootPath, 'generated.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'));
+
+    Assert.AreEqual(1, Integer(RunTool(lRootPath, ['preset=missing', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.MalformedConfigFailsWithoutRewritingFiles;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    WriteBytes(lRootPath, 'bad.json', TEncoding.UTF8.GetBytes('{"presets":'));
+    lFileName := WriteBytes(lRootPath, 'generated.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'));
+
+    Assert.AreEqual(1, Integer(RunTool(lRootPath, ['config=bad.json', 'preset=repo', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.InvalidPresetOptionFailsWithoutRewritingFiles;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    WriteBytes(lRootPath, 'encodingfix.json', TEncoding.UTF8.GetBytes('{"presets":{"bad":{"ext":"inc","eol":"unix"}}}'));
+    lFileName := WriteBytes(lRootPath, 'generated.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'));
+
+    Assert.AreEqual(1, Integer(RunTool(lRootPath, ['config=encodingfix.json', 'preset=bad', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'), TFile.ReadAllBytes(lFileName));
   finally
     DeleteTree(lRootPath);
   end;

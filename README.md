@@ -57,6 +57,7 @@ EncodingFixTool ext="*.pas,*.dpr, .dfm"
 | `recursive`   | —       | `y`/`n`/`yes`/`no`/`1`/`0` | `y`         | Recurse into subfolders.                                                                       |
 | `ext`         | —       | CSV list                   | `pas,dpr`   | File extensions to include. Smart parsing: accepts `pas`, `.pas`, `*.pas`. Quoted lists OK.    |
 | `preset`      | —       | `delphi-ai`                | —           | Applies Delphi agent cleanup defaults: Delphi extensions, UTF-8 BOM, recursive scan, CRLF.     |
+| `config`      | —       | JSON file                  | —           | Loads user-defined presets from an explicit JSON config file. Relative paths resolve under `path`. |
 | `scope`       | —       | `all`/`git-changed`        | `all`       | Scans all matching files or only Git modified and untracked files.                              |
 | `format`      | —       | `text`/`json`              | `text`      | Prints human-readable output or a compact JSON summary.                                        |
 | `utf8-bom`    | —       | `y`/`n`                    | `y`         | Whether to **save with** UTF-8 BOM. **Pure US-ASCII files are always left without a BOM**.     |
@@ -154,6 +155,9 @@ Done in 00:08.972. Files changed: 2. Failures: 0
 
 * **AI workflow**
   `preset=delphi-ai` is opt-in and intended for agent/editor cleanup after Delphi code generation. Use `scope=git-changed` to limit work to modified and untracked files, and `format=json` for a summary such as `{"scanned":2,"changed":1,"skipped":1,"failed":0}`.
+
+* **Preset configuration**
+  User presets live in JSON under a top-level `presets` object, for example `{"presets":{"agent":{"ext":"pas,inc","eol":"crlf"}}}`. Precedence is: built-in defaults, `%APPDATA%\MaxLogic\EncodingFixTool\config.json`, nearest repo `.encodingfix.json` found from `path` upward, explicit `config=...`, then CLI arguments. Invalid preset names, malformed JSON, and invalid preset option values fail before file rewriting starts.
 
 * **Relative reporting**
   Paths in logs are shown **relative to** the scanned `path`, for readability.
