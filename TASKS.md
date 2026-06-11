@@ -3,29 +3,12 @@
 Next task ID: T-007
 
 ## Summary
-Open tasks: 1 (In Progress: 0, Next Today: 1, Next This Week: 0, Next Later: 0, Blocked: 0)
-Done tasks: 5
+Open tasks: 0 (In Progress: 0, Next Today: 0, Next This Week: 0, Next Later: 0, Blocked: 0)
+Done tasks: 6
 
 ## In Progress
 
 ## Next - Today
-
-### T-006 [DOC] Refresh README for workflow and presets
-Outcome:
-- README describes the current CLI surface, including CRLF normalization, binary DFM behavior, AI workflow usage, scopes, formats, and configurable presets once implemented.
-- README includes a short "AI/agent usage" section with the intended command shape for Delphi projects.
-- README explains preset config precedence and the recommended locations for repo-local and user-global JSON configuration.
-- README examples stay copy-pasteable on Windows PowerShell and preserve conservative defaults.
-Proof:
-- Run: `Select-String -Path .\README.md -Pattern 'preset=delphi-ai','scope=git-changed','format=json','.encodingfix.json','%APPDATA%','eol=crlf'`
-  Expect: exit=0 and all patterns are found
-- Run: `python -c "from pathlib import Path; p=Path('README.md'); b=p.read_bytes(); assert b.count(b'\n') == b.count(b'\r\n')"`
-  Expect: exit=0
-Touches: README.md
-Deps: T-001, T-002, T-003, T-004
-Verify: cli-proof
-Ceremony: reduced
-Notes: Do after the CLI tasks or explicitly mark unreleased sections if documenting ahead of implementation.
 
 ## Next - This Week
 
@@ -34,6 +17,34 @@ Notes: Do after the CLI tasks or explicitly mark unreleased sections if document
 ## Blocked
 
 ## Done
+
+### T-006 [DOC] Refresh README for workflow and presets
+Completed: 2026-06-11
+Outcome:
+- README describes the current CLI surface, including CRLF normalization, binary DFM behavior, AI workflow usage, scopes, formats, and configurable presets once implemented.
+- README includes a short "AI/agent usage" section with the intended command shape for Delphi projects.
+- README explains preset config precedence and the recommended locations for repo-local and user-global JSON configuration.
+- README examples stay copy-pasteable on Windows PowerShell and preserve conservative defaults.
+Proof:
+- PASS: `Select-String -Path .\README.md -Pattern 'preset=delphi-ai','scope=git-changed','format=json','.encodingfix.json','%APPDATA%','eol=crlf'`
+  Result: all patterns found
+- PASS: `python -c "from pathlib import Path; p=Path('README.md'); b=p.read_bytes(); assert b.count(b'\n') == b.count(b'\r\n')"`
+  Result: exit=0
+- PASS: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
+  Result: exit=0, zero warnings, zero errors
+- PASS: `.\bin\EncodingFixTool.Tests.exe`
+  Result: exit=0, 30 passed, 0 failed
+- PASS: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
+  Result: exit=0, output contains `EncodingFixTool CLI tests passed.`
+- PASS: `& 'F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe' build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Win32 --config Debug --target Build --ai`
+  Result: success
+- PASS: `& 'F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe' build --project tests\EncodingFixTool.Tests.dproj --delphi 23.0 --platform Win32 --config Debug --target Build --ai`
+  Result: success
+Touches: README.md, CHANGELOG.md
+Deps: T-001, T-002, T-003, T-004
+Verify: cli-proof
+Ceremony: reduced
+Notes: Documentation-only task; strict RED/GREEN production-code TDD does not apply. Local acceptance audit confirmed the README covers the current CLI surface, AI workflow, scopes, formats, presets, and PowerShell examples.
 
 ### T-005 [DOC] Create EncodingFix agent skill
 Completed: 2026-06-11

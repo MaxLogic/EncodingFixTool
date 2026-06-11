@@ -37,6 +37,9 @@ EncodingFixTool path=.\src ext=pas,dpr eol=crlf
 :: AI-friendly Delphi cleanup for changed files with compact JSON output
 EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json
 
+:: Inspect the same cleanup without rewriting files
+EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json dry
+
 :: Multiple ext forms are OK; quoted lists work
 EncodingFixTool ext="*.pas,*.dpr, .dfm"
 ```
@@ -155,9 +158,75 @@ Done in 00:08.972. Files changed: 2. Failures: 0
 
 * **AI workflow**
   `preset=delphi-ai` is opt-in and intended for agent/editor cleanup after Delphi code generation. Use `scope=git-changed` to limit work to modified and untracked files, and `format=json` for a summary such as `{"scanned":2,"changed":1,"skipped":1,"failed":0}`.
+  The preset currently selects Delphi source/project extensions (`pas,dpr,dpk,inc,dfm,dproj`), recursive scanning, UTF-8 BOM policy, CRLF normalization, and binary DFM safety.
+
+## AI/agent usage
+
+For AI coding agents working in Delphi projects, run the cleanup from the repository root after Delphi edits and before final build/test gates:
+
+```powershell
+EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json
+```
+
+This command is intentionally compact for agent workflows:
+
+* `preset=delphi-ai` applies the Delphi cleanup defaults.
+* `scope=git-changed` avoids scanning unrelated clean files.
+* `format=json` gives a token-efficient summary with `scanned`, `changed`, `skipped`, and `failed` counts.
+
+Use dry-run mode first when the dirty worktree is not fully understood:
+
+```powershell
+EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json dry
+```
+
+Do not run the non-dry command over broad third-party or vendored code unless that is the intended scope. Inspect the JSON summary and `git diff --stat` before committing.
+
+## Preset configuration
+
+User-defined presets are JSON objects under a top-level `presets` key. Configuration is optional; the built-in `delphi-ai` preset works without any files.
+
+Recommended locations:
+
+* Repo-local: `.encodingfix.json`, discovered from `path` upward.
+* User-global: `%APPDATA%\MaxLogic\EncodingFixTool\config.json`.
+* Explicit one-off: pass `config=path\to\config.json`.
+
+Precedence is conservative and predictable:
+
+```text
+built-in defaults < user config < repo .encodingfix.json < explicit config=... < CLI arguments
+```
+
+Example `.encodingfix.json`:
+
+```json
+{
+  "presets": {
+    "project-agent": {
+      "ext": "pas,dpr,dpk,inc,dfm,dproj",
+      "eol": "crlf",
+      "utf8-bom": "y",
+      "recursive": "y"
+    }
+  }
+}
+```
+
+Use it with:
+
+```powershell
+EncodingFixTool path=. preset=project-agent scope=git-changed format=json
+```
+
+CLI arguments override preset values, so a one-off narrower run stays explicit:
+
+```powershell
+EncodingFixTool path=.\src preset=project-agent ext=pas,inc scope=git-changed format=json
+```
 
 * **Preset configuration**
-  User presets live in JSON under a top-level `presets` object, for example `{"presets":{"agent":{"ext":"pas,inc","eol":"crlf"}}}`. Precedence is: built-in defaults, `%APPDATA%\MaxLogic\EncodingFixTool\config.json`, nearest repo `.encodingfix.json` found from `path` upward, explicit `config=...`, then CLI arguments. Invalid preset names, malformed JSON, and invalid preset option values fail before file rewriting starts.
+  User presets live in JSON under a top-level `presets` object. See "Preset configuration" above for locations, precedence, and examples. Invalid preset names, malformed JSON, and invalid preset option values fail before file rewriting starts.
 
 * **Relative reporting**
   Paths in logs are shown **relative to** the scanned `path`, for readability.
