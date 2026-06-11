@@ -70,7 +70,7 @@ C:\bkp\src\foo\bar\Main.pas
    Walk the `path` (recursively by default), matching the configured extensions.
 
 2. **Process in parallel**
-   Uses `TParallel.For` to utilize multiple cores. Console output is synchronized, and the “files changed” counter is atomic.
+   Uses `TParallel.For` to utilize multiple cores. Console output is synchronized, and the “files changed” and failure counters are atomic.
 
 3. **Detect encoding per file** (fast pre-check)
 
@@ -99,7 +99,7 @@ C:\bkp\src\foo\bar\Main.pas
    * Save as **UTF-8** (BOM per `utf8-bom`), optionally to backup first.
 
 5. **Summary**
-   At the end prints elapsed time and number of files changed.
+   At the end prints elapsed time, number of files changed, and number of failures.
 
 ---
 
@@ -110,7 +110,7 @@ Dry run:
 ```
 Would fix: src\Utils\StrTools.pas (mixed bytes; would save UTF-8 (BOM=Y, EOL=CRLF) (dry-run))
 OK   : src\Main.dpr (UTF-8 OK)
-Done in 00:12.384. Files changed: 0
+Done in 00:12.384. Files changed: 0. Failures: 0
 ```
 
 Actual run:
@@ -118,7 +118,7 @@ Actual run:
 ```
 Fixed: src\Utils\StrTools.pas (detected Windows-1250; saved UTF-8 (BOM=Y, EOL=CRLF))
 Fixed: src\Forms\About.pas (detected UTF-8; Added UTF-8 BOM)
-Done in 00:08.972. Files changed: 2
+Done in 00:08.972. Files changed: 2. Failures: 0
 ```
 
 > When `silent` is enabled, only the summary is suppressed too. In dry-run mode, change messages are phrased as “Would fix”.
@@ -143,5 +143,6 @@ Done in 00:08.972. Files changed: 2
 
 ## Exit codes
 
-* `0` – completed (even if some files failed; failures are printed).
+* `0` – completed without parse errors or per-file failures.
+* `1` – invalid parameter or one or more files failed to process.
 * `2` – the `path` argument didn’t exist.

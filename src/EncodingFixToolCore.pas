@@ -23,15 +23,8 @@
 interface
 
 uses
-  System.SysUtils,
-  System.Classes,
-  System.generics.collections,
-  System.IOUtils,
-  System.SyncObjs,
-  System.diagnostics,
-  System.StrUtils,
-  System.Character,
-  System.Threading;
+  System.Character, System.Classes, System.Diagnostics, System.Generics.Collections, System.IOUtils, System.StrUtils,
+  System.SyncObjs, System.SysUtils, System.Threading;
 
 type
   TEncodingFixTool = class
@@ -67,6 +60,9 @@ type
     function CollectFiles(const aOptions: TOptions): TArray<string>;
 
     // Encoding helpers
+    function HasUtf8Bom(const aBytes: TBytes): boolean;
+    function HasUtf16BEBom(const aBytes: TBytes): boolean;
+    function HasUtf16LEBom(const aBytes: TBytes): boolean;
     function IsUtf8Strict(const aBytes: TBytes): boolean;
     function GetWithoutUtf8Bom(const aBytes: TBytes): TBytes;
     function SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
@@ -76,7 +72,7 @@ type
     function ContainsSpecials(const aText: string): integer;
 
     function FixFile(const aFile: string; const aOptions: TOptions; out aChanged: boolean; out aReason: string): boolean;
-    function SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean): boolean;
+    function SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean; out aError: string): boolean;
     function MakeBackupPath(const aOptions: TOptions; const aRootPath, aFile: string): string;
     function MakeRelativeTo(const aRootPath, aFile: string): string;
     procedure PrepareExtIndex(const aExts: TArray<string>);
@@ -90,8 +86,17 @@ type
 implementation
 
 uses
-  AutoFree,
-  System.WideStrUtils;
+  System.WideStrUtils,
+  AutoFree;
+
+const
+  cUtf8Bom0 = Byte($EF);
+  cUtf8Bom1 = Byte($BB);
+  cUtf8Bom2 = Byte($BF);
+  cUtf16LEBom0 = Byte($FF);
+  cUtf16LEBom1 = Byte($FE);
+  cUtf16BEBom0 = Byte($FE);
+  cUtf16BEBom1 = Byte($FF);
 
 { =====================  Utilities  ===================== }
 
@@ -120,12 +125,22 @@ end;
 constructor TEncodingFixTool.Create;
 begin
   inherited Create;
-  fWantedExts := TStringList.Create;
-  fWantedExts.Sorted := True;
-  fWantedExts.Duplicates := dupIgnore;
-  fWantedExts.CaseSensitive := False;
-  fEnc1250 := TEncoding.GetEncoding(1250);
-  fEnc1252 := TEncoding.GetEncoding(1252);
+  try
+    fWantedExts := TStringList.Create;
+    fWantedExts.Sorted := True;
+    fWantedExts.Duplicates := dupIgnore;
+    fWantedExts.CaseSensitive := False;
+    fEnc1250 := TEncoding.GetEncoding(1250);
+    fEnc1252 := TEncoding.GetEncoding(1252);
+  except
+    fEnc1252.Free;
+    fEnc1252 := nil;
+    fEnc1250.Free;
+    fEnc1250 := nil;
+    fWantedExts.Free;
+    fWantedExts := nil;
+    raise;
+  end;
 end;
 
 destructor TEncodingFixTool.Destroy;
@@ -170,8 +185,7 @@ begin
     if s.StartsWith('*.') then
     begin
       s := s.Substring(1); // "*.pas" -> ".pas"
-    end else
-      if (s <> '') and (s[1] <> '.') then
+    end else if (s <> '') and (s[1] <> '.') then
     begin
       s := '.' + s; // "pas" -> ".pas"
     end;
@@ -181,21 +195,22 @@ end;
 
 function TEncodingFixTool.CollectFiles(const aOptions: TOptions): TArray<string>;
 var
+  g: TGarbos;
   lFiles: TList<string>;
   lSearchOpt: TSearchOption;
-  Ext, pat: string;
+  lExt, lPattern: string;
 begin
-  gc(lFiles, TList<string>.Create);
+  GC(lFiles, TList<string>.Create, g);
 
   if aOptions.Recursive then
     lSearchOpt := TSearchOption.soAllDirectories
   else
     lSearchOpt := TSearchOption.soTopDirectoryOnly;
 
-  for Ext in fWantedExts do
+  for lExt in fWantedExts do
   begin
-    pat := '*' + Ext; // e.g. ".pas" -> "*.pas"
-    lFiles.AddRange(TDirectory.GetFiles(aOptions.Path, pat, lSearchOpt));
+    lPattern := '*' + lExt; // e.g. ".pas" -> "*.pas"
+    lFiles.AddRange(TDirectory.GetFiles(aOptions.Path, lPattern, lSearchOpt));
   end;
 
   Result := lFiles.ToArray;
@@ -212,15 +227,31 @@ begin
   Result := TEncoding.Utf8.IsBufferValid(lBytesNoBom);
 end;
 
+function TEncodingFixTool.HasUtf8Bom(const aBytes: TBytes): boolean;
+begin
+  Result := (length(aBytes) >= 3) and (aBytes[0] = cUtf8Bom0) and (aBytes[1] = cUtf8Bom1) and
+    (aBytes[2] = cUtf8Bom2);
+end;
+
+function TEncodingFixTool.HasUtf16BEBom(const aBytes: TBytes): boolean;
+begin
+  Result := (length(aBytes) >= 2) and (aBytes[0] = cUtf16BEBom0) and (aBytes[1] = cUtf16BEBom1);
+end;
+
+function TEncodingFixTool.HasUtf16LEBom(const aBytes: TBytes): boolean;
+begin
+  Result := (length(aBytes) >= 2) and (aBytes[0] = cUtf16LEBom0) and (aBytes[1] = cUtf16LEBom1);
+end;
+
 function TEncodingFixTool.SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
 var
+  g: TGarbos;
   i, lStart: integer;
   b: BYTE;
   lLine: TBytes;
   lList: TList<TBytes>;
 begin
-  lList := TList<TBytes>.Create;
-  gc(lList);
+  GC(lList, TList<TBytes>.Create, g);
 
   lStart := 0;
   i := 0;
@@ -249,8 +280,7 @@ begin
         Inc(i); // consume LF
       end;
       lStart := i;
-    end else
-    begin
+    end else begin
       Inc(i);
     end;
   end;
@@ -307,16 +337,13 @@ begin
     if ch = #$FFFD then
     begin
       Dec(lScore, 1);
-    end else
-      if (ch = #9) or (ch = #10) or (ch = #13) then
+    end else if (ch = #9) or (ch = #10) or (ch = #13) then
     begin
       // ignore tabs/newlines here
-    end else
-      if ch.IsControl then
+    end else if ch.IsControl then
     begin
       Dec(lScore, 2);
-    end else
-      if ch.IsLetterOrDigit or ch.IsWhiteSpace or CharInSet(ch, ['.', ',', ';', ':', '-', '_', '(', ')', '[', ']', '{', '}', '''', '"', '/', '\', '+', '*', '=', '<', '>', '!', '?', '@', '#', '$', '%', '^', '&', '|']) then
+    end else if ch.IsLetterOrDigit or ch.IsWhiteSpace or CharInSet(ch, ['.', ',', ';', ':', '-', '_', '(', ')', '[', ']', '{', '}', '''', '"', '/', '\', '+', '*', '=', '<', '>', '!', '?', '@', '#', '$', '%', '^', '&', '|']) then
     begin
       Inc(lScore, 1);
     end;
@@ -423,23 +450,47 @@ begin
   end;
 end;
 
-function TEncodingFixTool.SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean): boolean;
+function TEncodingFixTool.SaveTextUTF8(const aFile: string; const aText: string; aWithBOM: boolean; out aError: string): boolean;
 var
-  enc: TUTF8Encoding;
-  bytes: TBytes;
+  lContentBytes: TBytes;
+  lBytes: TBytes;
+  lTempFile: string;
 begin
   Result := False;
-  enc := TUTF8Encoding.Create(aWithBOM);
+  aError := '';
+  lTempFile := '';
   try
     try
-      bytes := enc.GetBytes(aText);
-      TFile.WriteAllBytes(aFile, bytes);
+      lContentBytes := TEncoding.UTF8.GetBytes(aText);
+      if aWithBOM then
+      begin
+        SetLength(lBytes, length(lContentBytes) + 3);
+        lBytes[0] := cUtf8Bom0;
+        lBytes[1] := cUtf8Bom1;
+        lBytes[2] := cUtf8Bom2;
+        if length(lContentBytes) > 0 then
+        begin
+          Move(lContentBytes[0], lBytes[3], length(lContentBytes));
+        end;
+      end else begin
+        lBytes := lContentBytes;
+      end;
+
+      lTempFile := TPath.Combine(ExtractFileDir(aFile), TPath.GetRandomFileName);
+      TFile.WriteAllBytes(lTempFile, lBytes);
+      TFile.Copy(lTempFile, aFile, True);
       Result := True;
     except
-      Result := False;
+      on e: Exception do
+      begin
+        aError := e.ClassName + ': ' + e.Message;
+      end;
     end;
   finally
-    enc.Free;
+    if (lTempFile <> '') and TFile.Exists(lTempFile) then
+    begin
+      TFile.Delete(lTempFile);
+    end;
   end;
 end;
 
@@ -453,8 +504,6 @@ var
   lFirst: boolean;
   lRoot: string;
   lBackupPath: string;
-  lUTF8: TEncoding;
-  lBom: TBytes;
   lHasBOM: boolean;
   lText: string;
   lCRLF, lLF, lCR: integer;
@@ -467,11 +516,54 @@ var
   lEncName: string;
   lReasonEnc: string;
   lKinds: Integer;
+  lSaveError: string;
+  g: TGarbos;
 begin
   aChanged := False;
   aReason := '';
 
   lBytes := TFile.ReadAllBytes(aFile);
+
+  if HasUtf16LEBom(lBytes) or HasUtf16BEBom(lBytes) then
+  begin
+    if HasUtf16LEBom(lBytes) then
+    begin
+      lText := TEncoding.Unicode.GetString(copy(lBytes, 2, length(lBytes) - 2));
+      lReasonEnc := 'detected UTF-16 LE';
+    end else begin
+      lText := TEncoding.BigEndianUnicode.GetString(copy(lBytes, 2, length(lBytes) - 2));
+      lReasonEnc := 'detected UTF-16 BE';
+    end;
+
+    if aOptions.DryRun then
+    begin
+      aChanged := True;
+      aReason := Format('%s; would save UTF-8 (BOM=%s) (dry-run)',
+        [lReasonEnc, IfThen(aOptions.Utf8Bom, 'Y', 'N')]);
+      Result := True;
+      exit;
+    end;
+
+    if aOptions.BackupDir <> '' then
+    begin
+      lRoot := IncludeTrailingPathDelimiter(ExpandFileName(aOptions.Path));
+      lBackupPath := MakeBackupPath(aOptions, lRoot, aFile);
+      TDirectory.CreateDirectory(ExtractFileDir(lBackupPath));
+      TFile.copy(aFile, lBackupPath, True);
+    end;
+
+    if SaveTextUTF8(aFile, lText, aOptions.Utf8Bom, lSaveError) then
+    begin
+      aChanged := True;
+      aReason := Format('%s; saved UTF-8 (BOM=%s)', [lReasonEnc, IfThen(aOptions.Utf8Bom, 'Y', 'N')]);
+      Result := True;
+    end else begin
+      aChanged := False;
+      aReason := 'Save failed: ' + lSaveError;
+      Result := False;
+    end;
+    exit;
+  end;
 
   // Detect encoding using System.WideStrUtils.DetectUTF8Encoding
   SetLength(rb, length(lBytes));
@@ -494,20 +586,16 @@ begin
     aReason := 'US-ASCII OK';
     Result := True;
     exit;
-  end else
-    if lEncType = etUTF8 then
+  end else if lEncType = etUTF8 then
   begin
     // It's UTF-8 (ASCII subset or multibyte). Only ensure BOM matches option.
-    lUTF8 := TEncoding.Utf8;
-    lBom := lUTF8.GetPreamble;
-    lHasBOM := (length(lBytes) >= length(lBom)) and
-      ((length(lBom) = 0) or CompareMem(@lBytes[0], @lBom[0], length(lBom)));
+    lHasBOM := HasUtf8Bom(lBytes);
 
     // Decode text ignoring BOM if present
     if lHasBOM then
-      lText := lUTF8.GetString(copy(lBytes, length(lBom), length(lBytes) - length(lBom)))
+      lText := TEncoding.UTF8.GetString(copy(lBytes, 3, length(lBytes) - 3))
     else
-      lText := lUTF8.GetString(lBytes);
+      lText := TEncoding.UTF8.GetString(lBytes);
 
     if aOptions.DryRun then
     begin
@@ -519,8 +607,7 @@ begin
       begin
         aChanged := True;
         aReason := 'Would remove UTF-8 BOM (dry-run)';
-      end else
-      begin
+      end else begin
         aChanged := False;
         aReason := 'UTF-8 OK';
       end;
@@ -538,15 +625,14 @@ begin
         TFile.copy(aFile, lBackupPath, True);
       end;
 
-      if SaveTextUTF8(aFile, lText, aOptions.Utf8Bom) then
+      if SaveTextUTF8(aFile, lText, aOptions.Utf8Bom, lSaveError) then
       begin
         aChanged := True;
         aReason := IfThen(aOptions.Utf8Bom and (not lHasBOM), 'Added UTF-8 BOM', 'Removed UTF-8 BOM');
         Result := True;
-      end else
-      begin
+      end else begin
         aChanged := False;
-        aReason := 'Save failed';
+        aReason := 'Save failed: ' + lSaveError;
         Result := False;
       end;
       exit;
@@ -575,8 +661,7 @@ begin
       begin
         Inc(lCRLF);
         Inc(i, 2);
-      end else
-      begin
+      end else begin
         Inc(lCR);
         Inc(i);
       end;
@@ -584,8 +669,7 @@ begin
     begin
       Inc(lLF);
       Inc(i);
-    end else
-    begin
+    end else begin
       Inc(i);
     end;
   end;
@@ -608,8 +692,7 @@ begin
 
   lLinesBytes := SplitLinesByBytes(lBytesNoBom);
 
-  lFixedLines := TStringBuilder.Create(length(lBytes) + 1024);
-  gc(lFixedLines);
+  GC(lFixedLines, TStringBuilder.Create(length(lBytes) + 1024), g);
 
   lCntUtf8 := 0;
   lCnt1250 := 0;
@@ -623,8 +706,7 @@ begin
     if not lFirst then
     begin
       lFixedLines.append(lEOL);
-    end else
-    begin
+    end else begin
       lFirst := False;
     end;
     lFixedLines.append(DecodeBestPerLine(lLine, lEncName));
@@ -687,7 +769,7 @@ begin
   end;
 
   // Save fixed version
-  if SaveTextUTF8(aFile, lFixedLines.ToString, aOptions.Utf8Bom) then
+  if SaveTextUTF8(aFile, lFixedLines.ToString, aOptions.Utf8Bom, lSaveError) then
   begin
     aChanged := True;
     aReason := Format('%s; saved UTF-8 (BOM=%s, EOL=%s)',
@@ -695,24 +777,17 @@ begin
        IfThen(aOptions.Utf8Bom, 'Y', 'N'),
        IfThen(lEOL = #13#10, 'CRLF', IfThen(lEOL = #10, 'LF', 'CR'))]);
     Result := True;
-  end else
-  begin
+  end else begin
     aChanged := False;
-    aReason := 'Save failed';
+    aReason := 'Save failed: ' + lSaveError;
     Result := False;
   end;
 end;
 
 function TEncodingFixTool.GetWithoutUtf8Bom(const aBytes: TBytes): TBytes;
-var
-  lBom: TBytes;
-  lHasBOM: boolean;
 begin
-  lBom := TEncoding.Utf8.GetPreamble;
-  lHasBOM := (length(aBytes) >= length(lBom)) and CompareMem(@aBytes[0], @lBom[0], length(lBom));
-
-  if lHasBOM then
-    Result := copy(aBytes, length(lBom), length(aBytes) - length(lBom))
+  if HasUtf8Bom(aBytes) then
+    Result := copy(aBytes, 3, length(aBytes) - 3)
   else
     Result := aBytes;
 end;
@@ -759,26 +834,37 @@ var
   i: integer;
   p, Key, Val: string;
   eqPos: integer;
+  lBool: boolean;
 
-  function AsYN(const s: string; const aDefault: boolean): boolean;
+  function FailParse(const aMsg: string): integer;
+  begin
+    if not aOptions.Silent then
+    begin
+      TSafeConsole.WriteLine('ERROR: ' + aMsg);
+    end;
+    Result := 1;
+  end;
+
+  function TryAsYN(const s: string; const aDefault: boolean; out aValue: boolean): boolean;
   var
     l: string;
   begin
     l := LowerCase(s.Trim);
     if (l = '') then
     begin
-      exit(aDefault);
-    end else
-      if (l = 'y') or (l = 'yes') or (l = '1') or (l = 'true') then
-    begin
+      aValue := aDefault;
       exit(True);
-    end else
-      if (l = 'n') or (l = 'no') or (l = '0') or (l = 'false') then
+    end else if (l = 'y') or (l = 'yes') or (l = '1') or (l = 'true') then
     begin
+      aValue := True;
+      exit(True);
+    end else if (l = 'n') or (l = 'no') or (l = '0') or (l = 'false') then
+    begin
+      aValue := False;
+      exit(True);
+    end else begin
+      aValue := aDefault;
       exit(False);
-    end else
-    begin
-      exit(aDefault);
     end;
   end;
 
@@ -818,8 +904,7 @@ begin
     begin
       Key := LowerCase(Trim(copy(p, 1, eqPos)));
       Val := Trim(copy(p, eqPos + 2, MaxInt));
-    end else
-    begin
+    end else begin
       Key := LowerCase(p);
       Val := '';
     end;
@@ -827,55 +912,54 @@ begin
     if (Key = 'help') or (Key = 'h') then
     begin
       exit(ShowHelp);
-    end else
-      if (Key = 'dry') then
+    end else if (Key = 'dry') then
     begin
       aOptions.DryRun := True;
-    end else
-      if (Key = 's') or (Key = 'silent') then
+    end else if (Key = 's') or (Key = 'silent') then
     begin
       aOptions.Silent := True;
       aOptions.Verbose := False;
-    end else
-      if (Key = 'v') or (Key = 'verbose') then
+    end else if (Key = 'v') or (Key = 'verbose') then
     begin
       if not aOptions.Silent then
       begin
         aOptions.Verbose := True;
       end;
-    end else
-      if (Key = 'path') then
+    end else if (Key = 'path') then
     begin
       if Val <> '' then
       begin
         aOptions.Path := ExpandFileName(Val);
       end;
-    end else
-      if (Key = 'recursive') then
+    end else if (Key = 'recursive') then
     begin
-      aOptions.Recursive := AsYN(Val, True);
-    end else
-      if (Key = 'ext') then
+      if not TryAsYN(Val, True, lBool) then
+      begin
+        exit(FailParse('invalid recursive value: ' + Val));
+      end;
+      aOptions.Recursive := lBool;
+    end else if (Key = 'ext') then
     begin
       if Val <> '' then
       begin
         Val := Val.Trim([' ', '"', '''']); // remove outer quotes
         aOptions.Exts := NormalizeExtList(Val);
       end;
-    end else
-      if (Key = 'utf8-bom') then
+    end else if (Key = 'utf8-bom') then
     begin
-      aOptions.Utf8Bom := AsYN(Val, True);
-    end else
-      if (Key = 'bkp-dir') then
+      if not TryAsYN(Val, True, lBool) then
+      begin
+        exit(FailParse('invalid utf8-bom value: ' + Val));
+      end;
+      aOptions.Utf8Bom := lBool;
+    end else if (Key = 'bkp-dir') then
     begin
       if Val <> '' then
       begin
         aOptions.BackupDir := ExpandFileName(Val);
       end;
-    end else
-    begin
-      // Unknown param: ignore silently (or we could warn if verbose)
+    end else begin
+      exit(FailParse('unknown parameter: ' + Key));
     end;
   end;
 
@@ -884,11 +968,13 @@ end;
 
 class function TEncodingFixTool.RunFromCommandLine: integer;
 var
+  g: TGarbos;
   lTool: TEncodingFixTool;
   lOptions: TOptions;
   lParseRes: integer;
   lFiles: TArray<string>;
   lChangedCount: integer;
+  lFailureCount: integer;
   lStopwatch: TStopWatch;
   lSilent: boolean;
   lVerbose: boolean;
@@ -896,7 +982,7 @@ var
   lRoot: string;
 begin
 
-  gc(lTool, TEncodingFixTool.Create);
+  GC(lTool, TEncodingFixTool.Create, g);
 
   lParseRes := lTool.ParseCommandLine(lOptions);
   if lParseRes >= 0 then
@@ -934,6 +1020,7 @@ begin
   end;
 
   lChangedCount := 0;
+  lFailureCount := 0;
   lStopwatch := TStopWatch.startNew;
 
   lLoopProc :=
@@ -945,10 +1032,12 @@ var
   lReason: string;
   lMsg: string;
   lLocalChanged: integer;
+  lLocalFailed: integer;
   lRelFile: string;
 begin
   lFile := lFiles[idx];
   lLocalChanged := 0;
+  lLocalFailed := 0;
   lRelFile := lTool.MakeRelativeTo(lRoot, lFile);
 
   try
@@ -965,15 +1054,14 @@ begin
           TSafeConsole.WriteLine(Format('%s: %s (%s)',
             [IfThen(lOptions.DryRun, 'Would fix', 'Fixed'), lRelFile, lReason]));
         end;
-      end else
-      begin
+      end else begin
         if lVerbose and (not lSilent) then
         begin
           TSafeConsole.WriteLine('OK   : ' + lRelFile + ' (' + lReason + ')');
         end;
       end;
-    end else
-    begin
+    end else begin
+      lLocalFailed := 1;
       if not lSilent then
       begin
         TSafeConsole.WriteLine('FAIL : ' + lRelFile + ' (' + lReason + ')');
@@ -982,6 +1070,7 @@ begin
   except
     on e: Exception do
     begin
+      lLocalFailed := 1;
       if not lSilent then
       begin
         lMsg := Format('ERROR: %s (%s)', [lRelFile, e.Message]);
@@ -994,6 +1083,10 @@ begin
   begin
     TInterlocked.Add(lChangedCount, lLocalChanged);
   end;
+  if lLocalFailed <> 0 then
+  begin
+    TInterlocked.Add(lFailureCount, lLocalFailed);
+  end;
 end;
 
 if length(lFiles) > 0 then
@@ -1004,14 +1097,18 @@ lStopwatch.stop;
 if not lSilent then
 begin
   TSafeConsole.WriteLine('');
-  TSafeConsole.WriteLine(Format('Done in %s. Files changed: %d',
+  TSafeConsole.WriteLine(Format('Done in %s. Files changed: %d. Failures: %d',
     [FormatDateTime('nn:ss.zzz', // pretty mm:ss.mmm
         EncodeTime(0, lStopwatch.Elapsed.Minutes, lStopwatch.Elapsed.Seconds, lStopwatch.Elapsed.Milliseconds)
         ),
-      lChangedCount]));
+      lChangedCount,
+      lFailureCount]));
 end;
 
-Result := 0;
+if lFailureCount <> 0 then
+  Result := 1
+else
+  Result := 0;
 end;
 
 end.
