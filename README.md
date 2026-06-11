@@ -1,7 +1,7 @@
 # EncodingFixTool
 
 A fast, parallel, command-line fixer for Delphi source file encodings.
-It scans `.pas`, `.dpr`, …; detects UTF-8/ASCII vs. legacy single-byte encodings; repairs mixed lines (Windows-1250/1252/ANSI), and writes clean UTF-8 with an optional BOM — without breaking your line endings or folder structure.
+It scans `.pas`, `.dpr`, …; detects UTF-8/ASCII vs. legacy single-byte encodings; repairs mixed lines (Windows-1250/1252/ANSI), and writes clean UTF-8 with an optional BOM. Line endings are preserved by default, or normalized to Windows CRLF when requested.
 
 ---
 
@@ -33,12 +33,6 @@ EncodingFixTool path=.\src recursive=n ext=pas utf8-bom=n
 
 :: Normalize generated Delphi sources to Windows CRLF while fixing encodings
 EncodingFixTool path=.\src ext=pas,dpr eol=crlf
-
-:: AI-friendly Delphi cleanup for changed files with compact JSON output
-EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json
-
-:: Inspect the same cleanup without rewriting files
-EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json dry
 
 :: Multiple ext forms are OK; quoted lists work
 EncodingFixTool ext="*.pas,*.dpr, .dfm"
@@ -137,7 +131,7 @@ OK   : src\Forms\Main.dfm (Skipped binary DFM)
 Done in 00:08.972. Files changed: 2. Failures: 0
 ```
 
-> When `silent` is enabled, only the summary is suppressed too. In dry-run mode, change messages are phrased as “Would fix”.
+> When `silent` is enabled, normal output is suppressed, including the summary and JSON summary. In dry-run mode, change messages are phrased as “Would fix”.
 
 ---
 
@@ -156,9 +150,8 @@ Done in 00:08.972. Files changed: 2. Failures: 0
 * **DFM files**
   Binary Delphi forms are detected from raw bytes and skipped unchanged. Text DFM files remain eligible for the normal encoding and optional line-ending repair path.
 
-* **AI workflow**
-  `preset=delphi-ai` is opt-in and intended for agent/editor cleanup after Delphi code generation. Use `scope=git-changed` to limit work to modified and untracked files, and `format=json` for a summary such as `{"scanned":2,"changed":1,"skipped":1,"failed":0}`.
-  The preset currently selects Delphi source/project extensions (`pas,dpr,dpk,inc,dfm,dproj`), recursive scanning, UTF-8 BOM policy, CRLF normalization, and binary DFM safety.
+* **Relative reporting**
+  Paths in logs are shown **relative to** the scanned `path`, for readability.
 
 ## AI/agent usage
 
@@ -184,12 +177,11 @@ Do not run the non-dry command over broad third-party or vendored code unless th
 
 ## Agent skill
 
-This repository includes a reusable agent skill in `agent-skill/`. The skill is a small `SKILL.md` workflow package that tells coding agents when and how to run EncodingFixTool after Delphi edits. It is useful when Codex, Claude Code, or another AI coding agent writes `.pas`, `.dpr`, `.dpk`, `.inc`, `.dfm`, or `.dproj` files and may have introduced LF line endings or inconsistent UTF-8/ANSI encoding.
+This repository includes a reusable agent skill in `agent-skill/`. The skill is a small `SKILL.md` workflow package that tells coding agents when and how to apply the AI/agent usage workflow above. It is useful when Codex, Claude Code, or another AI coding agent writes `.pas`, `.dpr`, `.dpk`, `.inc`, `.dfm`, or `.dproj` files and may have introduced LF line endings or inconsistent UTF-8/ANSI encoding.
 
 The skill helps agents:
 
-* run the compact cleanup command: `EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json`;
-* use `dry` mode first when the dirty worktree or scan scope is unclear;
+* choose between normal and dry-run cleanup;
 * avoid touching unrelated user changes, vendored code, or non-Delphi files;
 * interpret the JSON summary and stop on failures instead of hiding them;
 * continue with the normal Delphi build/test gates after cleanup.
@@ -261,11 +253,11 @@ CLI arguments override preset values, so a one-off narrower run stays explicit:
 EncodingFixTool path=.\src preset=project-agent ext=pas,inc scope=git-changed format=json
 ```
 
-* **Preset configuration**
-  User presets live in JSON under a top-level `presets` object. See "Preset configuration" above for locations, precedence, and examples. Invalid preset names, malformed JSON, and invalid preset option values fail before file rewriting starts.
+Invalid preset names, malformed JSON, and invalid preset option values fail before file rewriting starts.
 
-* **Relative reporting**
-  Paths in logs are shown **relative to** the scanned `path`, for readability.
+## Related MaxLogic Delphi tooling
+
+EncodingFixTool pairs well with [MaxLogic Delphi Companion](https://github.com/MaxLogic/DelphiCompanion), a RAD Studio Delphi 12+ IDE add-in focused on fast navigation and build feedback. Delphi Companion helps with project/unit navigation and build-problem feedback inside the IDE; EncodingFixTool handles source encoding and line-ending cleanup from the command line.
 
 ---
 
