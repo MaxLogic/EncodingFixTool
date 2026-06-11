@@ -31,6 +31,9 @@ EncodingFixTool path=C:\Projs\MyApp v bkp-dir=C:\backup\myapp
 :: Only scan .pas files in ./src (not recursive), remove BOM if present
 EncodingFixTool path=.\src recursive=n ext=pas utf8-bom=n
 
+:: Normalize generated Delphi sources to Windows CRLF while fixing encodings
+EncodingFixTool path=.\src ext=pas,dpr eol=crlf
+
 :: Multiple ext forms are OK; quoted lists work
 EncodingFixTool ext="*.pas,*.dpr, .dfm"
 ```
@@ -51,6 +54,7 @@ EncodingFixTool ext="*.pas,*.dpr, .dfm"
 | `recursive`   | —       | `y`/`n`/`yes`/`no`/`1`/`0` | `y`         | Recurse into subfolders.                                                                       |
 | `ext`         | —       | CSV list                   | `pas,dpr`   | File extensions to include. Smart parsing: accepts `pas`, `.pas`, `*.pas`. Quoted lists OK.    |
 | `utf8-bom`    | —       | `y`/`n`                    | `y`         | Whether to **save with** UTF-8 BOM. **Pure US-ASCII files are always left without a BOM**.     |
+| `eol`         | —       | `preserve`/`crlf`          | `preserve`  | Whether to preserve original line endings or normalize solitary `LF`/`CR` to Windows `CRLF`.   |
 | `bkp-dir`     | —       | dir                        | empty       | If set, backs up every file **before** overwriting, preserving the relative path below `path`. |
 
 ### Backup path example
@@ -94,7 +98,7 @@ C:\bkp\src\foo\bar\Main.pas
      * Pick the **highest-scoring** decode for that line.
    * Reassemble the file:
 
-     * Preserve the **dominant original EOL style** (CRLF/LF/CR).
+     * Preserve the **dominant original EOL style** (CRLF/LF/CR), unless `eol=crlf` is requested.
      * Preserve whether the file ended **with a trailing EOL**.
    * Save as **UTF-8** (BOM per `utf8-bom`), optionally to backup first.
 
@@ -134,7 +138,8 @@ Done in 00:08.972. Files changed: 2. Failures: 0
   * Existing UTF-8 files are re-saved only if the BOM policy differs.
 
 * **Line endings**
-  Dominant EOL (CRLF/LF/CR) is detected from raw bytes and **preserved**; trailing newline presence is preserved.
+  Dominant EOL (CRLF/LF/CR) is detected from raw bytes and **preserved** by default; trailing newline presence is preserved.
+  With `eol=crlf`, solitary `LF` and solitary `CR` separators are normalized to Windows `CRLF`, including ASCII and already-valid UTF-8 files that otherwise would not need encoding repair.
 
 * **Relative reporting**
   Paths in logs are shown **relative to** the scanned `path`, for readability.

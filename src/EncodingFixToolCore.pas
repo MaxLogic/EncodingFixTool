@@ -29,6 +29,7 @@ uses
 type
   TEncodingFixTool = class
   public type
+      TEndOfLineMode = (elmPreserve, elmCrlf);
       TOptions = record
         DryRun: boolean;
         Silent: boolean;
@@ -37,6 +38,7 @@ type
         Recursive: boolean; // default y
         Exts: TArray<string>; // normalized: ".pas", ".dpr", etc.
         Utf8Bom: boolean; // default y
+        EolMode: TEndOfLineMode; // default preserve
         BackupDir: string; // if <> '', create backups preserving relative path
       end;
   private
@@ -67,6 +69,7 @@ type
     function GetWithoutUtf8Bom(const aBytes: TBytes): TBytes;
     function SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
     function IsAsciiBytes(const aBytes: TBytes): boolean;
+    function NormalizeTextEolToCrlf(const aText: string; out aChanged: boolean): string;
     function DecodeBestPerLine(const aLineBytes: TBytes; out aEncName: string): string;
     function ScoreDecoded(const aText: string): integer;
     function ContainsSpecials(const aText: string): integer;
@@ -364,6 +367,47 @@ begin
   Exit(True);
 end;
 
+function TEncodingFixTool.NormalizeTextEolToCrlf(const aText: string; out aChanged: boolean): string;
+var
+  g: TGarbos;
+  i: integer;
+  c: Char;
+  lBuilder: TStringBuilder;
+begin
+  aChanged := False;
+  GC(lBuilder, TStringBuilder.Create(Length(aText) + 16), g);
+
+  i := 1;
+  while i <= Length(aText) do
+  begin
+    c := aText[i];
+    if c = #13 then
+    begin
+      lBuilder.Append(#13#10);
+      if (i < Length(aText)) and (aText[i + 1] = #10) then
+      begin
+        Inc(i, 2);
+      end else begin
+        aChanged := True;
+        Inc(i);
+      end;
+    end else if c = #10 then
+    begin
+      lBuilder.Append(#13#10);
+      aChanged := True;
+      Inc(i);
+    end else begin
+      lBuilder.Append(c);
+      Inc(i);
+    end;
+  end;
+
+  if aChanged then
+    Result := lBuilder.ToString
+  else
+    Result := aText;
+end;
+
 function TEncodingFixTool.DecodeBestPerLine(const aLineBytes: TBytes; out aEncName: string): string;
 var
   lANSI: TEncoding;
@@ -515,6 +559,7 @@ var
   lCntUtf8, lCnt1250, lCnt1252, lCntAnsi, lCntAscii: Integer;
   lEncName: string;
   lReasonEnc: string;
+  lEolChanged: boolean;
   lKinds: Integer;
   lSaveError: string;
   g: TGarbos;
@@ -573,6 +618,42 @@ begin
 
   if lEncType = etUSAscii then
   begin
+    if aOptions.EolMode = TEndOfLineMode.elmCrlf then
+    begin
+      lText := TEncoding.ASCII.GetString(lBytes);
+      lText := NormalizeTextEolToCrlf(lText, lEolChanged);
+      if lEolChanged then
+      begin
+        if aOptions.DryRun then
+        begin
+          aChanged := True;
+          aReason := 'Would normalize EOL to CRLF (dry-run)';
+          Result := True;
+          exit;
+        end;
+
+        if aOptions.BackupDir <> '' then
+        begin
+          lRoot := IncludeTrailingPathDelimiter(ExpandFileName(aOptions.Path));
+          lBackupPath := MakeBackupPath(aOptions, lRoot, aFile);
+          TDirectory.CreateDirectory(ExtractFileDir(lBackupPath));
+          TFile.copy(aFile, lBackupPath, True);
+        end;
+
+        if SaveTextUTF8(aFile, lText, False, lSaveError) then
+        begin
+          aChanged := True;
+          aReason := 'Normalized EOL to CRLF';
+          Result := True;
+        end else begin
+          aChanged := False;
+          aReason := 'Save failed: ' + lSaveError;
+          Result := False;
+        end;
+        exit;
+      end;
+    end;
+
     // Leave as-is. Do not add BOM even if option requests it.
     if aOptions.DryRun then
     begin
@@ -597,9 +678,23 @@ begin
     else
       lText := TEncoding.UTF8.GetString(lBytes);
 
+    lEolChanged := False;
+    if aOptions.EolMode = TEndOfLineMode.elmCrlf then
+    begin
+      lText := NormalizeTextEolToCrlf(lText, lEolChanged);
+    end;
+
     if aOptions.DryRun then
     begin
-      if (aOptions.Utf8Bom and (not lHasBOM)) then
+      if (aOptions.Utf8Bom and (not lHasBOM)) and lEolChanged then
+      begin
+        aChanged := True;
+        aReason := 'Would add UTF-8 BOM and normalize EOL to CRLF (dry-run)';
+      end else if ((not aOptions.Utf8Bom) and lHasBOM) and lEolChanged then
+      begin
+        aChanged := True;
+        aReason := 'Would remove UTF-8 BOM and normalize EOL to CRLF (dry-run)';
+      end else if (aOptions.Utf8Bom and (not lHasBOM)) then
       begin
         aChanged := True;
         aReason := 'Would add UTF-8 BOM (dry-run)';
@@ -607,6 +702,10 @@ begin
       begin
         aChanged := True;
         aReason := 'Would remove UTF-8 BOM (dry-run)';
+      end else if lEolChanged then
+      begin
+        aChanged := True;
+        aReason := 'Would normalize EOL to CRLF (dry-run)';
       end else begin
         aChanged := False;
         aReason := 'UTF-8 OK';
@@ -615,7 +714,7 @@ begin
       exit;
     end;
 
-    if (aOptions.Utf8Bom and (not lHasBOM)) or ((not aOptions.Utf8Bom) and lHasBOM) then
+    if (aOptions.Utf8Bom and (not lHasBOM)) or ((not aOptions.Utf8Bom) and lHasBOM) or lEolChanged then
     begin
       if aOptions.BackupDir <> '' then
       begin
@@ -628,7 +727,16 @@ begin
       if SaveTextUTF8(aFile, lText, aOptions.Utf8Bom, lSaveError) then
       begin
         aChanged := True;
-        aReason := IfThen(aOptions.Utf8Bom and (not lHasBOM), 'Added UTF-8 BOM', 'Removed UTF-8 BOM');
+        if (aOptions.Utf8Bom and (not lHasBOM)) and lEolChanged then
+          aReason := 'Added UTF-8 BOM and normalized EOL to CRLF'
+        else if ((not aOptions.Utf8Bom) and lHasBOM) and lEolChanged then
+          aReason := 'Removed UTF-8 BOM and normalized EOL to CRLF'
+        else if aOptions.Utf8Bom and (not lHasBOM) then
+          aReason := 'Added UTF-8 BOM'
+        else if (not aOptions.Utf8Bom) and lHasBOM then
+          aReason := 'Removed UTF-8 BOM'
+        else
+          aReason := 'Normalized EOL to CRLF';
         Result := True;
       end else begin
         aChanged := False;
@@ -680,6 +788,11 @@ begin
     lEOL := #10
   else
     lEOL := #13;
+
+  if aOptions.EolMode = TEndOfLineMode.elmCrlf then
+  begin
+    lEOL := #13#10;
+  end;
 
   lHadTrailingEOL := False;
   if length(lBytesNoBom) > 0 then
@@ -810,6 +923,7 @@ const
     '  ext=<csv>             : Extensions list. Default: pas,dpr. Accepts "pas", ".pas", "*.pas".' + sLineBreak +
     '  utf8-bom=y|n          : Save with UTF-8 BOM (default: y).' + sLineBreak +
     '    Note: Pure US-ASCII files are left without BOM regardless of utf8-bom.' + sLineBreak +
+    '  eol=preserve|crlf     : Preserve original line endings or normalize to CRLF. Default: preserve.' + sLineBreak +
     '  bkp-dir=<dir>         : If set, save a backup copy before overwriting.' + sLineBreak +
     sLineBreak +
     'How it works:' + sLineBreak +
@@ -818,10 +932,11 @@ const
     '- If that fails, lines are split by raw CR/LF and decoded per line using heuristics' + sLineBreak +
     '  between UTF-8, Windows-1250 (PL/CE), and Windows-1252 (DE/Western).' + sLineBreak +
     '- Fixed text is saved as UTF-8 (with/without BOM per option).' + sLineBreak +
+    '- eol=crlf also normalizes valid ASCII/UTF-8 files that need only line-ending repair.' + sLineBreak +
     sLineBreak +
     'Examples:' + sLineBreak +
     '  EncodingFixTool dry path=c:\src ext=pas,dpr recursive=n' + sLineBreak +
-    '  EncodingFixTool path=./src ext="*.pas,*.dpr" utf8-bom=n v' + sLineBreak +
+    '  EncodingFixTool path=./src ext="*.pas,*.dpr" utf8-bom=n eol=crlf v' + sLineBreak +
     '  EncodingFixTool path=c:\tmp bkp-dir=c:\bkp' + sLineBreak +
     sLineBreak;
 begin
@@ -877,6 +992,7 @@ begin
   aOptions.Recursive := True;
   aOptions.Exts := NormalizeExtList('pas,dpr');
   aOptions.Utf8Bom := True; // default y (Delphi-friendly)
+  aOptions.EolMode := TEndOfLineMode.elmPreserve;
   aOptions.BackupDir := '';
 
   // Parse
@@ -952,6 +1068,18 @@ begin
         exit(FailParse('invalid utf8-bom value: ' + Val));
       end;
       aOptions.Utf8Bom := lBool;
+    end else if (Key = 'eol') then
+    begin
+      Val := LowerCase(Val.Trim);
+      if (Val = '') or (Val = 'preserve') then
+      begin
+        aOptions.EolMode := TEndOfLineMode.elmPreserve;
+      end else if Val = 'crlf' then
+      begin
+        aOptions.EolMode := TEndOfLineMode.elmCrlf;
+      end else begin
+        exit(FailParse('invalid eol value: ' + Val));
+      end;
     end else if (Key = 'bkp-dir') then
     begin
       if Val <> '' then
@@ -1112,4 +1240,3 @@ else
 end;
 
 end.
-

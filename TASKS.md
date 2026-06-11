@@ -3,8 +3,8 @@
 Next task ID: T-007
 
 ## Summary
-Open tasks: 6 (In Progress: 0, Next Today: 6, Next This Week: 0, Next Later: 0, Blocked: 0)
-Done tasks: 0
+Open tasks: 5 (In Progress: 0, Next Today: 5, Next This Week: 0, Next Later: 0, Blocked: 0)
+Done tasks: 1
 
 ## In Progress
 
@@ -54,9 +54,9 @@ Outcome:
 - Invalid preset names, malformed JSON, and invalid preset option values fail with clear errors before any files are rewritten.
 - README documents preset configuration, precedence, and at least one Delphi-focused example.
 Proof:
-- Run: `msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32`
+- Run: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
   Expect: exit=0, zero warnings, zero errors
-- Run: `.\bin\EncodingFixTool.Tests.exe --filter=PresetConfig`
+- Run: `.\bin\EncodingFixTool.Tests.exe --include:PresetConfig`
   Expect: exit=0, all configurable preset tests pass
 - Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
   Expect: exit=0, output contains `EncodingFixTool CLI tests passed.`
@@ -72,9 +72,9 @@ Outcome:
 - A changed-file scope such as `scope=git-changed` limits cleanup to modified and untracked Delphi files in a Git worktree.
 - A concise machine-readable mode such as `format=json` reports scanned, changed, skipped, and failed files without verbose per-file chatter.
 Proof:
-- Run: `msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32`
+- Run: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
   Expect: exit=0, zero warnings, zero errors
-- Run: `.\bin\EncodingFixTool.Tests.exe --filter=AiWorkflow`
+- Run: `.\bin\EncodingFixTool.Tests.exe --include:AiWorkflow`
   Expect: exit=0, all AI workflow preset and scope tests pass
 - Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
   Expect: exit=0, output contains `EncodingFixTool CLI tests passed.`
@@ -83,32 +83,15 @@ Deps: T-001, T-002
 Verify: integration-test, cli-proof
 Notes: Target command shape: `EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json`. Keep defaults conservative; this preset is explicitly opt-in for AI/editor cleanup after code generation.
 
-### T-001 [CLI] Add CRLF normalization mode
-Outcome:
-- The CLI accepts an opt-in `eol=preserve|crlf` option, defaulting to the current `preserve` behavior.
-- `eol=crlf` rewrites solitary `LF` and solitary `CR` line separators to Windows `CRLF`, including files that are otherwise valid ASCII or UTF-8.
-- Dry-run and verbose output report when a file would change only because of line-ending normalization.
-- Existing encoding repair still preserves line endings unless `eol=crlf` is explicitly requested.
-Proof:
-- Run: `msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32`
-  Expect: exit=0, zero warnings, zero errors
-- Run: `.\bin\EncodingFixTool.Tests.exe --filter=LineEnding`
-  Expect: exit=0, all line-ending normalization tests pass
-- Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
-  Expect: exit=0, output contains `EncodingFixTool CLI tests passed.`
-Touches: src/EncodingFixToolCore.pas, tests/EncodingFixTool.IntegrationTests.pas, tests/Invoke-EncodingFixTool.Tests.ps1, README.md
-Verify: integration-test, cli-proof
-Notes: Inspired by Fix-CRLF's solitary CR/LF normalization; implement in our byte-based pipeline, not by importing its GUI/string helpers.
-
 ### T-002 [CLI] Skip binary DFM files safely
 Outcome:
 - When `ext` includes `dfm`, binary DFM files are detected from raw bytes before decoding and are skipped without modification.
 - Skipped binary DFM files are reported in verbose mode and do not count as failures.
 - Text DFM files remain eligible for the normal encoding and optional line-ending repair path.
 Proof:
-- Run: `msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32`
+- Run: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
   Expect: exit=0, zero warnings, zero errors
-- Run: `.\bin\EncodingFixTool.Tests.exe --filter=Dfm`
+- Run: `.\bin\EncodingFixTool.Tests.exe --include:Dfm`
   Expect: exit=0, all binary/text DFM tests pass
 - Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
   Expect: exit=0, output contains `EncodingFixTool CLI tests passed.`
@@ -123,3 +106,27 @@ Notes: Fix-CRLF skips binary DFM files before repair; our implementation should 
 ## Blocked
 
 ## Done
+
+### T-001 [CLI] Add CRLF normalization mode
+Completed: 2026-06-11
+Outcome:
+- The CLI accepts an opt-in `eol=preserve|crlf` option, defaulting to the current `preserve` behavior.
+- `eol=crlf` rewrites solitary `LF` and solitary `CR` line separators to Windows `CRLF`, including files that are otherwise valid ASCII or UTF-8.
+- Dry-run and verbose output report when a file would change only because of line-ending normalization.
+- Existing encoding repair still preserves line endings unless `eol=crlf` is explicitly requested.
+Proof:
+- PASS: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
+  Result: exit=0, zero warnings, zero errors
+- PASS: `.\bin\EncodingFixTool.Tests.exe --include:LineEnding`
+  Result: exit=0, 8 passed, 0 failed
+- PASS: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
+  Result: exit=0, output contains `EncodingFixTool CLI tests passed.`
+- PASS: `.\bin\EncodingFixTool.Tests.exe`
+  Result: exit=0, 17 passed, 0 failed
+- PASS: `& $env:DAK_EXE build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Win32 --config Debug --target Rebuild --ai`
+  Result: success
+- PASS: `& $env:DAK_EXE build --project tests\EncodingFixTool.Tests.dproj --delphi 23.0 --platform Win32 --config Debug --target Rebuild --ai`
+  Result: success
+Touches: src/EncodingFixToolCore.pas, tests/EncodingFixTool.IntegrationTests.pas, tests/Invoke-EncodingFixTool.Tests.ps1, README.md, CHANGELOG.md
+Verify: integration-test, cli-proof
+Notes: Inspired by Fix-CRLF's solitary CR/LF normalization; implemented in our byte-based pipeline, not by importing its GUI/string helpers.

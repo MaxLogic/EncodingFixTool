@@ -98,6 +98,29 @@ try {
   Assert-True ($lResult.ExitCode -eq 1) "Invalid boolean values should return exit code 1."
   Assert-True ($lResult.Output -match 'ERROR: invalid utf8-bom value: maybe') "Invalid boolean value should be explained."
 
+  $lLfOnlyFile = Join-Path $lRoot 'lfonly.pas'
+  [System.IO.File]::WriteAllBytes(
+    $lLfOnlyFile,
+    [System.Text.Encoding]::ASCII.GetBytes("unit lfonly;`ninterface`nimplementation`nend.")
+  )
+
+  $lResult = Invoke-Tool @("path=$lRoot", 'recursive=n', 'ext=pas', 'eol=crlf', 'dry')
+  Assert-True ($lResult.ExitCode -eq 0) "EOL dry-run should succeed."
+  Assert-True ($lResult.Output -match 'Would fix: lfonly\.pas \(Would normalize EOL to CRLF \(dry-run\)\)') "Expected dry-run to report EOL-only normalization."
+
+  $lBytes = [System.IO.File]::ReadAllBytes($lLfOnlyFile)
+  Assert-True (($lBytes | Where-Object { $_ -eq 13 }).Count -eq 0) "Dry-run must not rewrite LF-only file."
+
+  $lVerboseFile = Join-Path $lRoot 'verbose-eol.pas'
+  [System.IO.File]::WriteAllBytes(
+    $lVerboseFile,
+    [System.Text.Encoding]::ASCII.GetBytes("unit verboseeol;`ninterface`nimplementation`nend.")
+  )
+
+  $lResult = Invoke-Tool @("path=$lRoot", 'recursive=n', 'ext=pas', 'eol=crlf', 'v')
+  Assert-True ($lResult.ExitCode -eq 0) "Verbose EOL normalization should succeed."
+  Assert-True ($lResult.Output -match 'Fixed: verbose-eol\.pas \(Normalized EOL to CRLF\)') "Expected verbose run to report EOL-only normalization."
+
   Write-Host 'EncodingFixTool CLI tests passed.'
 } finally {
   if (Test-Path -LiteralPath $lRoot) {

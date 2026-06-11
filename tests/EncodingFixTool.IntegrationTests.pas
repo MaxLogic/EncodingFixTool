@@ -51,6 +51,38 @@ type
 
     [Test]
     procedure MissingPathReturnsExitCodeTwo;
+
+    [Test]
+    [Category('LineEnding')]
+    procedure DryRunLeavesAsciiLfUnchangedWhenNormalizingEol;
+
+    [Test]
+    [Category('LineEnding')]
+    procedure NormalizesAsciiLfToCrlfWhenRequested;
+
+    [Test]
+    [Category('LineEnding')]
+    procedure NormalizesAsciiCrToCrlfWhenRequested;
+
+    [Test]
+    [Category('LineEnding')]
+    procedure NormalizesCP1250LfToCrlfWhenRequested;
+
+    [Test]
+    [Category('LineEnding')]
+    procedure NormalizesUtf8LfToCrlfWhenRequested;
+
+    [Test]
+    [Category('LineEnding')]
+    procedure PreservesAsciiLfWhenExplicitlyRequested;
+
+    [Test]
+    [Category('LineEnding')]
+    procedure PreservesCP1250LfDuringEncodingRepairByDefault;
+
+    [Test]
+    [Category('LineEnding')]
+    procedure PreservesAsciiLfByDefault;
   end;
 
 implementation
@@ -326,6 +358,156 @@ begin
   lMissingPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-Missing-' + TGuid.NewGuid.ToString);
 
   Assert.AreEqual(2, Integer(RunTool(lMissingPath, ['recursive=n', 'ext=pas', 's'])));
+end;
+
+procedure TEncodingFixToolIntegrationTests.DryRunLeavesAsciiLfUnchangedWhenNormalizingEol;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'lf-only.pas', TEncoding.ASCII.GetBytes('unit Demo;'#10'interface'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 'eol=crlf', 'dry'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Demo;'#10'interface'#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.NormalizesAsciiLfToCrlfWhenRequested;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'lf-only.pas', TEncoding.ASCII.GetBytes('unit Demo;'#10'interface'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 'eol=crlf', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Demo;'#13#10'interface'#13#10'end.'),
+      TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.NormalizesAsciiCrToCrlfWhenRequested;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'cr-only.pas', TEncoding.ASCII.GetBytes('unit Demo;'#13'interface'#13'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 'eol=crlf', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Demo;'#13#10'interface'#13#10'end.'),
+      TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.NormalizesCP1250LfToCrlfWhenRequested;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'cp1250-lf.pas', BytesOfCP1250('unit Demo;'#10'const S = ''zażółć'';'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 'eol=crlf', 's'])));
+
+    Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Expected UTF-8 BOM after conversion.');
+    Assert.AreEqual('unit Demo;'#13#10'const S = ''zażółć'';'#13#10'end.', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.NormalizesUtf8LfToCrlfWhenRequested;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'utf8-lf.pas', BytesOfUtf8('unit Demo;'#10'const S = ''zażółć'';'#10'end.',
+      False));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 'eol=crlf', 's'])));
+
+    Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Expected UTF-8 BOM to be added.');
+    Assert.AreEqual('unit Demo;'#13#10'const S = ''zażółć'';'#13#10'end.', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.PreservesAsciiLfWhenExplicitlyRequested;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'lf-only.pas', TEncoding.ASCII.GetBytes('unit Demo;'#10'interface'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 'eol=preserve', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Demo;'#10'interface'#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.PreservesCP1250LfDuringEncodingRepairByDefault;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'cp1250-lf.pas', BytesOfCP1250('unit Demo;'#10'const S = ''zażółć'';'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 's'])));
+
+    Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Expected UTF-8 BOM after conversion.');
+    Assert.AreEqual('unit Demo;'#10'const S = ''zażółć'';'#10'end.', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.PreservesAsciiLfByDefault;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'lf-only.pas', TEncoding.ASCII.GetBytes('unit Demo;'#10'interface'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=pas', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Demo;'#10'interface'#10'end.'), TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
 end;
 
 procedure TEncodingFixToolIntegrationTests.RejectsInvalidBooleanOption;
