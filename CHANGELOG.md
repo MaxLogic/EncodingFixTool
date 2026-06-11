@@ -11,3 +11,4 @@
 - Added a repo-local agent skill describing the recommended Delphi cleanup workflow for EncodingFixTool.
 - Expanded README guidance for AI/agent usage, CRLF cleanup, binary DFM safety, JSON summaries, and preset configuration.
 - Refined the repo-local agent skill with safer scope checks, JSON result handling, non-Git workflow guidance, and evaluation prompts.
+- Documented the repo-local `agent-skill/` package and how to use it with Codex or Claude Code.

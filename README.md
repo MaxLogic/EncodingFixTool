@@ -182,6 +182,42 @@ EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json dry
 
 Do not run the non-dry command over broad third-party or vendored code unless that is the intended scope. Inspect the JSON summary and `git diff --stat` before committing.
 
+## Agent skill
+
+This repository includes a reusable agent skill in `agent-skill/`. The skill is a small `SKILL.md` workflow package that tells coding agents when and how to run EncodingFixTool after Delphi edits. It is useful when Codex, Claude Code, or another AI coding agent writes `.pas`, `.dpr`, `.dpk`, `.inc`, `.dfm`, or `.dproj` files and may have introduced LF line endings or inconsistent UTF-8/ANSI encoding.
+
+The skill helps agents:
+
+* run the compact cleanup command: `EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json`;
+* use `dry` mode first when the dirty worktree or scan scope is unclear;
+* avoid touching unrelated user changes, vendored code, or non-Delphi files;
+* interpret the JSON summary and stop on failures instead of hiding them;
+* continue with the normal Delphi build/test gates after cleanup.
+
+### Use with Codex
+
+Codex skills are directories containing a required `SKILL.md` plus optional resources; Codex reads the full `SKILL.md` when it selects the skill. Copy this repository's `agent-skill/` directory into the Codex skills directory you use for local skills, then start Codex in a Delphi project and ask it to use the EncodingFix Delphi cleanup skill after Delphi edits.
+
+Example prompt:
+
+```text
+After editing Delphi files, use the EncodingFix Delphi cleanup skill before running the build.
+```
+
+The skill itself is self-contained, but the `EncodingFixTool` executable must be available on `PATH` or via a repo-local path such as `.\bin\EncodingFixTool.exe`.
+
+### Use with Claude Code
+
+Claude Code also supports skills as directories with `SKILL.md` instructions. Copy `agent-skill/` into the Claude Code skills location you use for custom skills, then reference it when working on Delphi repositories.
+
+Example prompt:
+
+```text
+Use the EncodingFix Delphi cleanup skill to repair CRLF and encoding issues in changed Delphi files, then report scanned/changed/skipped/failed.
+```
+
+For subagents, preload or reference the skill in the subagent configuration when the subagent will edit Delphi files. The important runtime requirement is the same: the subagent needs shell access to `EncodingFixTool`.
+
 ## Preset configuration
 
 User-defined presets are JSON objects under a top-level `presets` key. Configuration is optional; the built-in `delphi-ai` preset works without any files.
