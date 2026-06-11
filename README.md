@@ -34,6 +34,9 @@ EncodingFixTool path=.\src recursive=n ext=pas utf8-bom=n
 :: Normalize generated Delphi sources to Windows CRLF while fixing encodings
 EncodingFixTool path=.\src ext=pas,dpr eol=crlf
 
+:: AI-friendly Delphi cleanup for changed files with compact JSON output
+EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json
+
 :: Multiple ext forms are OK; quoted lists work
 EncodingFixTool ext="*.pas,*.dpr, .dfm"
 ```
@@ -53,6 +56,9 @@ EncodingFixTool ext="*.pas,*.dpr, .dfm"
 | `path`        | —       | dir                        | current dir | Directory to scan.                                                                             |
 | `recursive`   | —       | `y`/`n`/`yes`/`no`/`1`/`0` | `y`         | Recurse into subfolders.                                                                       |
 | `ext`         | —       | CSV list                   | `pas,dpr`   | File extensions to include. Smart parsing: accepts `pas`, `.pas`, `*.pas`. Quoted lists OK.    |
+| `preset`      | —       | `delphi-ai`                | —           | Applies Delphi agent cleanup defaults: Delphi extensions, UTF-8 BOM, recursive scan, CRLF.     |
+| `scope`       | —       | `all`/`git-changed`        | `all`       | Scans all matching files or only Git modified and untracked files.                              |
+| `format`      | —       | `text`/`json`              | `text`      | Prints human-readable output or a compact JSON summary.                                        |
 | `utf8-bom`    | —       | `y`/`n`                    | `y`         | Whether to **save with** UTF-8 BOM. **Pure US-ASCII files are always left without a BOM**.     |
 | `eol`         | —       | `preserve`/`crlf`          | `preserve`  | Whether to preserve original line endings or normalize solitary `LF`/`CR` to Windows `CRLF`.   |
 | `bkp-dir`     | —       | dir                        | empty       | If set, backs up every file **before** overwriting, preserving the relative path below `path`. |
@@ -145,6 +151,9 @@ Done in 00:08.972. Files changed: 2. Failures: 0
 
 * **DFM files**
   Binary Delphi forms are detected from raw bytes and skipped unchanged. Text DFM files remain eligible for the normal encoding and optional line-ending repair path.
+
+* **AI workflow**
+  `preset=delphi-ai` is opt-in and intended for agent/editor cleanup after Delphi code generation. Use `scope=git-changed` to limit work to modified and untracked files, and `format=json` for a summary such as `{"scanned":2,"changed":1,"skipped":1,"failed":0}`.
 
 * **Relative reporting**
   Paths in logs are shown **relative to** the scanned `path`, for readability.

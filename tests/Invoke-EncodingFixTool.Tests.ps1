@@ -130,6 +130,19 @@ try {
   Assert-True ($lResult.Output -match 'OK\s+: binary\.dfm \(Skipped binary DFM\)') "Expected verbose run to report skipped binary DFM."
   Assert-True ([Convert]::ToBase64String($lBinaryDfmBytes) -eq [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($lBinaryDfmFile))) "Binary DFM bytes must remain unchanged."
 
+  $lJsonRoot = Join-Path $lRoot 'json'
+  New-Item -ItemType Directory -Path $lJsonRoot | Out-Null
+  [System.IO.File]::WriteAllBytes(
+    (Join-Path $lJsonRoot 'generated.pas'),
+    [System.Text.Encoding]::ASCII.GetBytes("unit generated;`ninterface`nend.")
+  )
+  [System.IO.File]::WriteAllBytes((Join-Path $lJsonRoot 'binary.dfm'), $lBinaryDfmBytes)
+
+  $lResult = Invoke-Tool @("path=$lJsonRoot", 'preset=delphi-ai', 'format=json')
+  Assert-True ($lResult.ExitCode -eq 0) "JSON AI workflow run should succeed."
+  $lJson = $lResult.Output | ConvertFrom-Json
+  Assert-True (($lJson.scanned -eq 2) -and ($lJson.changed -eq 1) -and ($lJson.skipped -eq 1) -and ($lJson.failed -eq 0)) "Expected compact JSON summary counts for AI workflow."
+
   Write-Host 'EncodingFixTool CLI tests passed.'
 } finally {
   if (Test-Path -LiteralPath $lRoot) {

@@ -18,6 +18,7 @@ type
     class function QuoteArg(const aArg: string): string; static;
     class function ReadUtf8TextWithoutBom(const aFileName: string): string; static;
     class function RepoRoot: string; static;
+    class function RunProcess(const aCommandLine, aWorkingDirectory: string): Cardinal; static;
     class function RunTool(const aRootPath: string; const aArgs: TArray<string>): Cardinal; static;
     class function ToolPath: string; static;
     class procedure AssertBytesEqual(const aExpected, aActual: TBytes); static;
@@ -65,6 +66,14 @@ type
     procedure NormalizesTextDfmLineEndingsWhenRequested;
 
     [Test]
+    [Category('AiWorkflow')]
+    procedure DelphiAiPresetNormalizesDelphiFiles;
+
+    [Test]
+    [Category('AiWorkflow')]
+    procedure GitChangedScopeProcessesOnlyChangedFiles;
+
+    [Test]
     [Category('LineEnding')]
     procedure DryRunLeavesAsciiLfUnchangedWhenNormalizingEol;
 
@@ -100,8 +109,8 @@ type
 implementation
 
 uses
-  Winapi.Windows,
   System.IOUtils,
+  Winapi.Windows,
   DUnitX.Assert;
 
 const
@@ -204,6 +213,43 @@ end;
 class function TEncodingFixToolIntegrationTests.RepoRoot: string;
 begin
   Result := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..'));
+end;
+
+class function TEncodingFixToolIntegrationTests.RunProcess(const aCommandLine, aWorkingDirectory: string): Cardinal;
+var
+  lCommandLine: string;
+  lCommandLineChars: TArray<Char>;
+  lProcessInformation: TProcessInformation;
+  lStartupInfo: TStartupInfo;
+  lWaitResult: Cardinal;
+begin
+  lCommandLine := aCommandLine;
+  lCommandLineChars := lCommandLine.ToCharArray;
+  SetLength(lCommandLineChars, Length(lCommandLineChars) + 1);
+  ZeroMemory(@lProcessInformation, SizeOf(lProcessInformation));
+  ZeroMemory(@lStartupInfo, SizeOf(lStartupInfo));
+  lStartupInfo.cb := SizeOf(lStartupInfo);
+
+  if not CreateProcess(nil, PChar(lCommandLineChars), nil, nil, False, CREATE_NO_WINDOW, nil, PChar(aWorkingDirectory),
+    lStartupInfo, lProcessInformation) then
+  begin
+    RaiseLastOSError;
+  end;
+  try
+    lWaitResult := WaitForSingleObject(lProcessInformation.hProcess, 30000);
+    if lWaitResult <> WAIT_OBJECT_0 then
+    begin
+      TerminateProcess(lProcessInformation.hProcess, 1);
+      Assert.Fail('Process timed out: ' + aCommandLine);
+    end;
+    if not GetExitCodeProcess(lProcessInformation.hProcess, Result) then
+    begin
+      RaiseLastOSError;
+    end;
+  finally
+    CloseHandle(lProcessInformation.hThread);
+    CloseHandle(lProcessInformation.hProcess);
+  end;
 end;
 
 class procedure TEncodingFixToolIntegrationTests.RequireTool;
@@ -425,6 +471,71 @@ begin
 
     Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Expected UTF-8 BOM after text DFM conversion.');
     Assert.AreEqual('object Form1: TForm'#13#10'  Caption = ''zażółć'''#13#10'end', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.DelphiAiPresetNormalizesDelphiFiles;
+var
+  lBinaryDfmBytes: TBytes;
+  lBinaryDfmFileName: string;
+  lDprojFileName: string;
+  lIncFileName: string;
+  lNestedFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lIncFileName := WriteBytes(lRootPath, 'generated.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'const B = 2;'));
+    lNestedFileName := WriteBytes(lRootPath, 'nested\nonascii.pas', BytesOfUtf8('unit Demo;'#10'const S = ''zażółć'';', False));
+    lDprojFileName := WriteBytes(lRootPath, 'Project1.dproj', TEncoding.ASCII.GetBytes('<Project>'#10'</Project>'));
+    lBinaryDfmBytes := TBytes.Create($54, $50, $46, $30, $00, $01, $FF, $80);
+    lBinaryDfmFileName := WriteBytes(lRootPath, 'binary.dfm', lBinaryDfmBytes);
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['preset=delphi-ai', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#13#10'const B = 2;'), TFile.ReadAllBytes(lIncFileName));
+    Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lNestedFileName)), 'Expected UTF-8 BOM for nested non-ASCII Delphi file.');
+    Assert.AreEqual('unit Demo;'#13#10'const S = ''zażółć'';', ReadUtf8TextWithoutBom(lNestedFileName));
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('<Project>'#13#10'</Project>'), TFile.ReadAllBytes(lDprojFileName));
+    AssertBytesEqual(lBinaryDfmBytes, TFile.ReadAllBytes(lBinaryDfmFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.GitChangedScopeProcessesOnlyChangedFiles;
+var
+  lChangedFileName: string;
+  lRootPath: string;
+  lScanPath: string;
+  lUnchangedFileName: string;
+  lUntrackedFileName: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  lScanPath := TPath.Combine(lRootPath, 'src');
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lChangedFileName := WriteBytes(lRootPath, 'src\changed.pas', TEncoding.ASCII.GetBytes('unit Changed;'#10'end.'));
+    lUnchangedFileName := WriteBytes(lRootPath, 'src\unchanged.pas', TEncoding.ASCII.GetBytes('unit Unchanged;'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunProcess('git init', lRootPath)));
+    Assert.AreEqual(0, Integer(RunProcess('git config user.email test@example.invalid', lRootPath)));
+    Assert.AreEqual(0, Integer(RunProcess('git config user.name EncodingFix Test', lRootPath)));
+    Assert.AreEqual(0, Integer(RunProcess('git add src/changed.pas src/unchanged.pas', lRootPath)));
+    Assert.AreEqual(0, Integer(RunProcess('git commit -m initial', lRootPath)));
+
+    TFile.WriteAllBytes(lChangedFileName, TEncoding.ASCII.GetBytes('unit Changed;'#10'interface'#10'end.'));
+    lUntrackedFileName := WriteBytes(lRootPath, 'src\untracked.inc', TEncoding.ASCII.GetBytes('const A = 1;'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lScanPath, ['preset=delphi-ai', 'scope=git-changed', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Changed;'#13#10'interface'#13#10'end.'),
+      TFile.ReadAllBytes(lChangedFileName));
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#13#10'end.'), TFile.ReadAllBytes(lUntrackedFileName));
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Unchanged;'#10'end.'), TFile.ReadAllBytes(lUnchangedFileName));
   finally
     DeleteTree(lRootPath);
   end;

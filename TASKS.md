@@ -3,8 +3,8 @@
 Next task ID: T-007
 
 ## Summary
-Open tasks: 4 (In Progress: 0, Next Today: 4, Next This Week: 0, Next Later: 0, Blocked: 0)
-Done tasks: 2
+Open tasks: 3 (In Progress: 0, Next Today: 3, Next This Week: 0, Next Later: 0, Blocked: 0)
+Done tasks: 3
 
 ## In Progress
 
@@ -65,24 +65,6 @@ Deps: T-003
 Verify: integration-test, cli-proof
 Notes: Prefer JSON via Delphi's built-in JSON support. Do not use side-by-side exe config as the primary location because install directories may be read-only or shared across users.
 
-### T-003 [CLI] Add AI-friendly Delphi cleanup workflow
-Outcome:
-- The CLI provides a built-in `preset=delphi-ai` workflow for agent-driven Delphi cleanup.
-- `preset=delphi-ai` expands to Delphi source/project extensions, UTF-8 BOM for non-ASCII files, CRLF normalization, recursive scan, and binary DFM safety once the dependent features exist.
-- A changed-file scope such as `scope=git-changed` limits cleanup to modified and untracked Delphi files in a Git worktree.
-- A concise machine-readable mode such as `format=json` reports scanned, changed, skipped, and failed files without verbose per-file chatter.
-Proof:
-- Run: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
-  Expect: exit=0, zero warnings, zero errors
-- Run: `.\bin\EncodingFixTool.Tests.exe --include:AiWorkflow`
-  Expect: exit=0, all AI workflow preset and scope tests pass
-- Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
-  Expect: exit=0, output contains `EncodingFixTool CLI tests passed.`
-Touches: src/EncodingFixToolCore.pas, tests/EncodingFixTool.IntegrationTests.pas, tests/Invoke-EncodingFixTool.Tests.ps1, README.md
-Deps: T-001, T-002
-Verify: integration-test, cli-proof
-Notes: Target command shape: `EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json`. Keep defaults conservative; this preset is explicitly opt-in for AI/editor cleanup after code generation.
-
 ## Next - This Week
 
 ## Next - Later
@@ -90,6 +72,31 @@ Notes: Target command shape: `EncodingFixTool path=. preset=delphi-ai scope=git-
 ## Blocked
 
 ## Done
+
+### T-003 [CLI] Add AI-friendly Delphi cleanup workflow
+Completed: 2026-06-11
+Outcome:
+- The CLI provides a built-in `preset=delphi-ai` workflow for agent-driven Delphi cleanup.
+- `preset=delphi-ai` expands to Delphi source/project extensions, UTF-8 BOM for non-ASCII files, CRLF normalization, recursive scan, and binary DFM safety once the dependent features exist.
+- `scope=git-changed` limits cleanup to modified and untracked Delphi files in a Git worktree, resolving Git paths from the worktree root and filtering back to the requested scan path.
+- `format=json` reports scanned, changed, skipped, and failed files without verbose per-file chatter.
+Proof:
+- PASS: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
+  Result: exit=0, zero warnings, zero errors
+- PASS: `.\bin\EncodingFixTool.Tests.exe --include:AiWorkflow`
+  Result: exit=0, 2 passed, 0 failed
+- PASS: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
+  Result: exit=0, output contains `EncodingFixTool CLI tests passed.`
+- PASS: `.\bin\EncodingFixTool.Tests.exe`
+  Result: exit=0, 22 passed, 0 failed
+- PASS: `& $env:DAK_EXE build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Win32 --config Debug --target Rebuild --ai`
+  Result: success
+- PASS: `& $env:DAK_EXE build --project tests\EncodingFixTool.Tests.dproj --delphi 23.0 --platform Win32 --config Debug --target Rebuild --ai`
+  Result: success
+Touches: src/EncodingFixToolCore.pas, tests/EncodingFixTool.IntegrationTests.pas, tests/Invoke-EncodingFixTool.Tests.ps1, README.md, CHANGELOG.md
+Deps: T-001, T-002
+Verify: integration-test, cli-proof
+Notes: Target command shape is `EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json`. The preset is explicitly opt-in for AI/editor cleanup after code generation.
 
 ### T-002 [CLI] Skip binary DFM files safely
 Completed: 2026-06-11

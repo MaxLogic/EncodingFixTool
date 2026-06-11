@@ -30,6 +30,8 @@ type
   TEncodingFixTool = class
   public type
       TEndOfLineMode = (elmPreserve, elmCrlf);
+      TOutputFormat = (ofText, ofJson);
+      TScopeMode = (smAll, smGitChanged);
       TOptions = record
         DryRun: boolean;
         Silent: boolean;
@@ -39,6 +41,8 @@ type
         Exts: TArray<string>; // normalized: ".pas", ".dpr", etc.
         Utf8Bom: boolean; // default y
         EolMode: TEndOfLineMode; // default preserve
+        OutputFormat: TOutputFormat; // default text
+        ScopeMode: TScopeMode; // default all files
         BackupDir: string; // if <> '', create backups preserving relative path
       end;
   private
@@ -60,6 +64,10 @@ type
     function ShowHelp: integer;
     function NormalizeExtList(const aCSV: string): TArray<string>;
     function CollectFiles(const aOptions: TOptions): TArray<string>;
+    function CollectGitChangedFiles(const aOptions: TOptions): TArray<string>;
+    function IsWantedExt(const aFile: string): boolean;
+    function QuoteShellArg(const aValue: string): string;
+    function RunCommand(const aCommandLine, aWorkingDirectory: string): integer;
 
     // Encoding helpers
     function HasUtf8Bom(const aBytes: TBytes): boolean;
@@ -91,6 +99,7 @@ implementation
 
 uses
   System.WideStrUtils,
+  Winapi.Windows,
   AutoFree;
 
 const
@@ -204,6 +213,11 @@ var
   lSearchOpt: TSearchOption;
   lExt, lPattern: string;
 begin
+  if aOptions.ScopeMode = TScopeMode.smGitChanged then
+  begin
+    Exit(CollectGitChangedFiles(aOptions));
+  end;
+
   GC(lFiles, TList<string>.Create, g);
 
   if aOptions.Recursive then
@@ -218,6 +232,132 @@ begin
   end;
 
   Result := lFiles.ToArray;
+end;
+
+function TEncodingFixTool.CollectGitChangedFiles(const aOptions: TOptions): TArray<string>;
+var
+  g: TGarbos;
+  lCommand: string;
+  lExitCode: integer;
+  lFile: string;
+  lFiles: TList<string>;
+  lLine: string;
+  lOutputFileName: string;
+  lPath: string;
+  lRootPath: string;
+  lScanRootPath: string;
+  lSepPos: integer;
+  lStatus: string;
+  lWorkTreeRootFileName: string;
+begin
+  GC(lFiles, TList<string>.Create, g);
+  lOutputFileName := TPath.Combine(TPath.GetTempPath, 'EncodingFixTool-git-' + TGuid.NewGuid.ToString + '.txt');
+  lWorkTreeRootFileName := TPath.Combine(TPath.GetTempPath, 'EncodingFixTool-git-root-' + TGuid.NewGuid.ToString + '.txt');
+  try
+    lCommand := 'cmd.exe /C git -C ' + QuoteShellArg(aOptions.Path) + ' rev-parse --show-toplevel > ' +
+      QuoteShellArg(lWorkTreeRootFileName);
+    lExitCode := RunCommand(lCommand, aOptions.Path);
+    if lExitCode <> 0 then
+    begin
+      raise Exception.Create('git rev-parse failed');
+    end;
+    lRootPath := IncludeTrailingPathDelimiter(TFile.ReadAllText(lWorkTreeRootFileName, TEncoding.UTF8).Trim);
+    lScanRootPath := IncludeTrailingPathDelimiter(ExpandFileName(aOptions.Path));
+
+    lCommand := 'cmd.exe /C git -C ' + QuoteShellArg(aOptions.Path) +
+      ' status --porcelain --untracked-files=all > ' + QuoteShellArg(lOutputFileName);
+    lExitCode := RunCommand(lCommand, aOptions.Path);
+    if lExitCode <> 0 then
+    begin
+      raise Exception.Create('git status failed');
+    end;
+
+    for lLine in TFile.ReadAllLines(lOutputFileName, TEncoding.UTF8) do
+    begin
+      if Length(lLine) < 4 then
+      begin
+        Continue;
+      end;
+
+      lStatus := Copy(lLine, 1, 2);
+      if (lStatus = ' D') or (lStatus = 'D ') or (lStatus = 'DD') then
+      begin
+        Continue;
+      end;
+
+      lPath := Copy(lLine, 4, MaxInt).Trim([' ', '"']);
+      lSepPos := Pos(' -> ', lPath);
+      if lSepPos > 0 then
+      begin
+        lPath := Copy(lPath, lSepPos + 4, MaxInt).Trim([' ', '"']);
+      end;
+      lPath := StringReplace(lPath, '/', TPath.DirectorySeparatorChar, [rfReplaceAll]);
+      lFile := TPath.GetFullPath(TPath.Combine(lRootPath, lPath));
+
+      if TFile.Exists(lFile) and StartsText(lScanRootPath, lFile) and IsWantedExt(lFile) then
+      begin
+        lFiles.Add(lFile);
+      end;
+    end;
+  finally
+    if TFile.Exists(lOutputFileName) then
+    begin
+      TFile.Delete(lOutputFileName);
+    end;
+    if TFile.Exists(lWorkTreeRootFileName) then
+    begin
+      TFile.Delete(lWorkTreeRootFileName);
+    end;
+  end;
+
+  Result := lFiles.ToArray;
+end;
+
+function TEncodingFixTool.IsWantedExt(const aFile: string): boolean;
+begin
+  Result := fWantedExts.IndexOf(LowerCase(ExtractFileExt(aFile))) >= 0;
+end;
+
+function TEncodingFixTool.QuoteShellArg(const aValue: string): string;
+begin
+  Result := '"' + StringReplace(aValue, '"', '\"', [rfReplaceAll]) + '"';
+end;
+
+function TEncodingFixTool.RunCommand(const aCommandLine, aWorkingDirectory: string): integer;
+var
+  lExitCode: DWORD;
+  lCommandLineChars: TArray<Char>;
+  lProcessInformation: TProcessInformation;
+  lStartupInfo: TStartupInfo;
+  lWaitResult: Cardinal;
+begin
+  lCommandLineChars := aCommandLine.ToCharArray;
+  SetLength(lCommandLineChars, Length(lCommandLineChars) + 1);
+  ZeroMemory(@lProcessInformation, SizeOf(lProcessInformation));
+  ZeroMemory(@lStartupInfo, SizeOf(lStartupInfo));
+  lStartupInfo.cb := SizeOf(lStartupInfo);
+
+  if not CreateProcess(nil, PChar(lCommandLineChars), nil, nil, False, CREATE_NO_WINDOW, nil, PChar(aWorkingDirectory),
+    lStartupInfo, lProcessInformation) then
+  begin
+    RaiseLastOSError;
+  end;
+  try
+    lWaitResult := WaitForSingleObject(lProcessInformation.hProcess, 30000);
+    if lWaitResult <> WAIT_OBJECT_0 then
+    begin
+      TerminateProcess(lProcessInformation.hProcess, 1);
+      raise Exception.Create('process timed out');
+    end;
+    if not GetExitCodeProcess(lProcessInformation.hProcess, lExitCode) then
+    begin
+      RaiseLastOSError;
+    end;
+    Result := Integer(lExitCode);
+  finally
+    CloseHandle(lProcessInformation.hThread);
+    CloseHandle(lProcessInformation.hProcess);
+  end;
 end;
 
 function TEncodingFixTool.IsUtf8Strict(const aBytes: TBytes): boolean;
@@ -936,6 +1076,9 @@ const
     '  path=<dir>            : Directory to scan. Default: current working dir.' + sLineBreak +
     '  recursive=y|n         : Recurse into subfolders. Default: y.' + sLineBreak +
     '  ext=<csv>             : Extensions list. Default: pas,dpr. Accepts "pas", ".pas", "*.pas".' + sLineBreak +
+    '  preset=delphi-ai      : AI cleanup preset for Delphi projects.' + sLineBreak +
+    '  scope=all|git-changed : Scan all matching files or only Git modified/untracked files. Default: all.' + sLineBreak +
+    '  format=text|json      : Human text output or compact JSON summary. Default: text.' + sLineBreak +
     '  utf8-bom=y|n          : Save with UTF-8 BOM (default: y).' + sLineBreak +
     '    Note: Pure US-ASCII files are left without BOM regardless of utf8-bom.' + sLineBreak +
     '  eol=preserve|crlf     : Preserve original line endings or normalize to CRLF. Default: preserve.' + sLineBreak +
@@ -1008,6 +1151,8 @@ begin
   aOptions.Exts := NormalizeExtList('pas,dpr');
   aOptions.Utf8Bom := True; // default y (Delphi-friendly)
   aOptions.EolMode := TEndOfLineMode.elmPreserve;
+  aOptions.OutputFormat := TOutputFormat.ofText;
+  aOptions.ScopeMode := TScopeMode.smAll;
   aOptions.BackupDir := '';
 
   // Parse
@@ -1076,6 +1221,42 @@ begin
         Val := Val.Trim([' ', '"', '''']); // remove outer quotes
         aOptions.Exts := NormalizeExtList(Val);
       end;
+    end else if (Key = 'preset') then
+    begin
+      Val := LowerCase(Val.Trim);
+      if Val = 'delphi-ai' then
+      begin
+        aOptions.Recursive := True;
+        aOptions.Exts := NormalizeExtList('pas,dpr,dpk,inc,dfm,dproj');
+        aOptions.Utf8Bom := True;
+        aOptions.EolMode := TEndOfLineMode.elmCrlf;
+      end else begin
+        exit(FailParse('invalid preset value: ' + Val));
+      end;
+    end else if (Key = 'scope') then
+    begin
+      Val := LowerCase(Val.Trim);
+      if (Val = '') or (Val = 'all') then
+      begin
+        aOptions.ScopeMode := TScopeMode.smAll;
+      end else if Val = 'git-changed' then
+      begin
+        aOptions.ScopeMode := TScopeMode.smGitChanged;
+      end else begin
+        exit(FailParse('invalid scope value: ' + Val));
+      end;
+    end else if (Key = 'format') then
+    begin
+      Val := LowerCase(Val.Trim);
+      if (Val = '') or (Val = 'text') then
+      begin
+        aOptions.OutputFormat := TOutputFormat.ofText;
+      end else if Val = 'json' then
+      begin
+        aOptions.OutputFormat := TOutputFormat.ofJson;
+      end else begin
+        exit(FailParse('invalid format value: ' + Val));
+      end;
     end else if (Key = 'utf8-bom') then
     begin
       if not TryAsYN(Val, True, lBool) then
@@ -1118,6 +1299,8 @@ var
   lFiles: TArray<string>;
   lChangedCount: integer;
   lFailureCount: integer;
+  lScannedCount: integer;
+  lSkippedCount: integer;
   lStopwatch: TStopWatch;
   lSilent: boolean;
   lVerbose: boolean;
@@ -1157,13 +1340,15 @@ begin
   lTool.PrepareExtIndex(lOptions.Exts);
 
   lFiles := lTool.CollectFiles(lOptions);
-  if (length(lFiles) = 0) and (not lSilent) then
+  if (length(lFiles) = 0) and (not lSilent) and (lOptions.OutputFormat = TOutputFormat.ofText) then
   begin
     TSafeConsole.WriteLine('No files found.');
   end;
 
   lChangedCount := 0;
   lFailureCount := 0;
+  lScannedCount := Length(lFiles);
+  lSkippedCount := 0;
   lStopwatch := TStopWatch.startNew;
 
   lLoopProc :=
@@ -1176,11 +1361,13 @@ var
   lMsg: string;
   lLocalChanged: integer;
   lLocalFailed: integer;
+  lLocalSkipped: integer;
   lRelFile: string;
 begin
   lFile := lFiles[idx];
   lLocalChanged := 0;
   lLocalFailed := 0;
+  lLocalSkipped := 0;
   lRelFile := lTool.MakeRelativeTo(lRoot, lFile);
 
   try
@@ -1192,20 +1379,24 @@ begin
         begin
           lLocalChanged := 1;
         end;
-        if not lSilent then
+        if (not lSilent) and (lOptions.OutputFormat = TOutputFormat.ofText) then
         begin
           TSafeConsole.WriteLine(Format('%s: %s (%s)',
             [IfThen(lOptions.DryRun, 'Would fix', 'Fixed'), lRelFile, lReason]));
         end;
       end else begin
-        if lVerbose and (not lSilent) then
+        if StartsText('Skipped ', lReason) then
+        begin
+          lLocalSkipped := 1;
+        end;
+        if lVerbose and (not lSilent) and (lOptions.OutputFormat = TOutputFormat.ofText) then
         begin
           TSafeConsole.WriteLine('OK   : ' + lRelFile + ' (' + lReason + ')');
         end;
       end;
     end else begin
       lLocalFailed := 1;
-      if not lSilent then
+      if (not lSilent) and (lOptions.OutputFormat = TOutputFormat.ofText) then
       begin
         TSafeConsole.WriteLine('FAIL : ' + lRelFile + ' (' + lReason + ')');
       end;
@@ -1214,7 +1405,7 @@ begin
     on e: Exception do
     begin
       lLocalFailed := 1;
-      if not lSilent then
+      if (not lSilent) and (lOptions.OutputFormat = TOutputFormat.ofText) then
       begin
         lMsg := Format('ERROR: %s (%s)', [lRelFile, e.Message]);
         TSafeConsole.WriteLine(lMsg);
@@ -1230,6 +1421,10 @@ begin
   begin
     TInterlocked.Add(lFailureCount, lLocalFailed);
   end;
+  if lLocalSkipped <> 0 then
+  begin
+    TInterlocked.Add(lSkippedCount, lLocalSkipped);
+  end;
 end;
 
 if length(lFiles) > 0 then
@@ -1237,7 +1432,11 @@ if length(lFiles) > 0 then
 
 lStopwatch.stop;
 
-if not lSilent then
+if (lOptions.OutputFormat = TOutputFormat.ofJson) and (not lSilent) then
+begin
+  TSafeConsole.WriteLine(Format('{"scanned":%d,"changed":%d,"skipped":%d,"failed":%d}',
+    [lScannedCount, lChangedCount, lSkippedCount, lFailureCount]));
+end else if not lSilent then
 begin
   TSafeConsole.WriteLine('');
   TSafeConsole.WriteLine(Format('Done in %s. Files changed: %d. Failures: %d',
