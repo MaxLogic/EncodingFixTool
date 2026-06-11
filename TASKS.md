@@ -3,8 +3,8 @@
 Next task ID: T-007
 
 ## Summary
-Open tasks: 5 (In Progress: 0, Next Today: 5, Next This Week: 0, Next Later: 0, Blocked: 0)
-Done tasks: 1
+Open tasks: 4 (In Progress: 0, Next Today: 4, Next This Week: 0, Next Later: 0, Blocked: 0)
+Done tasks: 2
 
 ## In Progress
 
@@ -83,22 +83,6 @@ Deps: T-001, T-002
 Verify: integration-test, cli-proof
 Notes: Target command shape: `EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json`. Keep defaults conservative; this preset is explicitly opt-in for AI/editor cleanup after code generation.
 
-### T-002 [CLI] Skip binary DFM files safely
-Outcome:
-- When `ext` includes `dfm`, binary DFM files are detected from raw bytes before decoding and are skipped without modification.
-- Skipped binary DFM files are reported in verbose mode and do not count as failures.
-- Text DFM files remain eligible for the normal encoding and optional line-ending repair path.
-Proof:
-- Run: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
-  Expect: exit=0, zero warnings, zero errors
-- Run: `.\bin\EncodingFixTool.Tests.exe --include:Dfm`
-  Expect: exit=0, all binary/text DFM tests pass
-- Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
-  Expect: exit=0, output contains `EncodingFixTool CLI tests passed.`
-Touches: src/EncodingFixToolCore.pas, tests/EncodingFixTool.IntegrationTests.pas, tests/Invoke-EncodingFixTool.Tests.ps1, README.md
-Verify: integration-test, cli-proof
-Notes: Fix-CRLF skips binary DFM files before repair; our implementation should avoid string-decoding binary content entirely.
-
 ## Next - This Week
 
 ## Next - Later
@@ -106,6 +90,29 @@ Notes: Fix-CRLF skips binary DFM files before repair; our implementation should 
 ## Blocked
 
 ## Done
+
+### T-002 [CLI] Skip binary DFM files safely
+Completed: 2026-06-11
+Outcome:
+- When `ext` includes `dfm`, binary DFM files are detected from raw bytes before decoding and are skipped without modification.
+- Skipped binary DFM files are reported in verbose mode and do not count as failures.
+- Text DFM files remain eligible for the normal encoding and optional line-ending repair path.
+Proof:
+- PASS: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
+  Result: exit=0, zero warnings, zero errors
+- PASS: `.\bin\EncodingFixTool.Tests.exe --include:Dfm`
+  Result: exit=0, 3 passed, 0 failed
+- PASS: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
+  Result: exit=0, output contains `EncodingFixTool CLI tests passed.`
+- PASS: `.\bin\EncodingFixTool.Tests.exe`
+  Result: exit=0, 20 passed, 0 failed
+- PASS: `& $env:DAK_EXE build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Win32 --config Debug --target Rebuild --ai`
+  Result: success
+- PASS: `& $env:DAK_EXE build --project tests\EncodingFixTool.Tests.dproj --delphi 23.0 --platform Win32 --config Debug --target Rebuild --ai`
+  Result: success
+Touches: src/EncodingFixToolCore.pas, tests/EncodingFixTool.IntegrationTests.pas, tests/Invoke-EncodingFixTool.Tests.ps1, README.md, CHANGELOG.md
+Verify: integration-test, cli-proof
+Notes: Fix-CRLF skips binary DFM files before repair; implemented as a raw-byte `TPF0` check before decoding. Text DFM encoding and `eol=crlf` paths remain covered.
 
 ### T-001 [CLI] Add CRLF normalization mode
 Completed: 2026-06-11

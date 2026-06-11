@@ -121,6 +121,15 @@ try {
   Assert-True ($lResult.ExitCode -eq 0) "Verbose EOL normalization should succeed."
   Assert-True ($lResult.Output -match 'Fixed: verbose-eol\.pas \(Normalized EOL to CRLF\)') "Expected verbose run to report EOL-only normalization."
 
+  $lBinaryDfmFile = Join-Path $lRoot 'binary.dfm'
+  $lBinaryDfmBytes = [byte[]](0x54, 0x50, 0x46, 0x30, 0x00, 0x01, 0xFF, 0x80, 0x0D, 0x0A, 0x00, 0x02)
+  [System.IO.File]::WriteAllBytes($lBinaryDfmFile, $lBinaryDfmBytes)
+
+  $lResult = Invoke-Tool @("path=$lRoot", 'recursive=n', 'ext=dfm', 'v')
+  Assert-True ($lResult.ExitCode -eq 0) "Binary DFM skip should succeed."
+  Assert-True ($lResult.Output -match 'OK\s+: binary\.dfm \(Skipped binary DFM\)') "Expected verbose run to report skipped binary DFM."
+  Assert-True ([Convert]::ToBase64String($lBinaryDfmBytes) -eq [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($lBinaryDfmFile))) "Binary DFM bytes must remain unchanged."
+
   Write-Host 'EncodingFixTool CLI tests passed.'
 } finally {
   if (Test-Path -LiteralPath $lRoot) {

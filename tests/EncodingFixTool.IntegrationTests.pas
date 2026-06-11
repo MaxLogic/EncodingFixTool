@@ -53,6 +53,18 @@ type
     procedure MissingPathReturnsExitCodeTwo;
 
     [Test]
+    [Category('Dfm')]
+    procedure SkipsBinaryDfmWithoutModification;
+
+    [Test]
+    [Category('Dfm')]
+    procedure RepairsTextDfmThroughNormalEncodingPath;
+
+    [Test]
+    [Category('Dfm')]
+    procedure NormalizesTextDfmLineEndingsWhenRequested;
+
+    [Test]
     [Category('LineEnding')]
     procedure DryRunLeavesAsciiLfUnchangedWhenNormalizingEol;
 
@@ -358,6 +370,64 @@ begin
   lMissingPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-Missing-' + TGuid.NewGuid.ToString);
 
   Assert.AreEqual(2, Integer(RunTool(lMissingPath, ['recursive=n', 'ext=pas', 's'])));
+end;
+
+procedure TEncodingFixToolIntegrationTests.SkipsBinaryDfmWithoutModification;
+var
+  lBytes: TBytes;
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lBytes := TBytes.Create($54, $50, $46, $30, $00, $01, $FF, $80, $0D, $0A, $00, $02);
+    lFileName := WriteBytes(lRootPath, 'binary.dfm', lBytes);
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=dfm', 'v'])));
+
+    AssertBytesEqual(lBytes, TFile.ReadAllBytes(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.RepairsTextDfmThroughNormalEncodingPath;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'text.dfm', BytesOfCP1250('object Form1: TForm'#13#10'  Caption = ''zażółć'''#13#10'end'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=dfm', 's'])));
+
+    Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Expected UTF-8 BOM after text DFM conversion.');
+    Assert.AreEqual('object Form1: TForm'#13#10'  Caption = ''zażółć'''#13#10'end', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.NormalizesTextDfmLineEndingsWhenRequested;
+var
+  lFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'text-lf.dfm', BytesOfCP1250('object Form1: TForm'#10'  Caption = ''zażółć'''#10'end'));
+
+    Assert.AreEqual(0, Integer(RunTool(lRootPath, ['recursive=n', 'ext=dfm', 'eol=crlf', 's'])));
+
+    Assert.IsTrue(HasUtf8Bom(TFile.ReadAllBytes(lFileName)), 'Expected UTF-8 BOM after text DFM conversion.');
+    Assert.AreEqual('object Form1: TForm'#13#10'  Caption = ''zażółć'''#13#10'end', ReadUtf8TextWithoutBom(lFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
 end;
 
 procedure TEncodingFixToolIntegrationTests.DryRunLeavesAsciiLfUnchangedWhenNormalizingEol;

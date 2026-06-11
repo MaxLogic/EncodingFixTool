@@ -69,6 +69,7 @@ type
     function GetWithoutUtf8Bom(const aBytes: TBytes): TBytes;
     function SplitLinesByBytes(const aBytes: TBytes): TArray<TBytes>;
     function IsAsciiBytes(const aBytes: TBytes): boolean;
+    function IsBinaryDfmFile(const aFile: string; const aBytes: TBytes): boolean;
     function NormalizeTextEolToCrlf(const aText: string; out aChanged: boolean): string;
     function DecodeBestPerLine(const aLineBytes: TBytes; out aEncName: string): string;
     function ScoreDecoded(const aText: string): integer;
@@ -367,6 +368,12 @@ begin
   Exit(True);
 end;
 
+function TEncodingFixTool.IsBinaryDfmFile(const aFile: string; const aBytes: TBytes): boolean;
+begin
+  Result := SameText(ExtractFileExt(aFile), '.dfm') and (Length(aBytes) >= 4) and
+    (aBytes[0] = Ord('T')) and (aBytes[1] = Ord('P')) and (aBytes[2] = Ord('F')) and (aBytes[3] = Ord('0'));
+end;
+
 function TEncodingFixTool.NormalizeTextEolToCrlf(const aText: string; out aChanged: boolean): string;
 var
   g: TGarbos;
@@ -568,6 +575,14 @@ begin
   aReason := '';
 
   lBytes := TFile.ReadAllBytes(aFile);
+
+  if IsBinaryDfmFile(aFile, lBytes) then
+  begin
+    aChanged := False;
+    aReason := 'Skipped binary DFM';
+    Result := True;
+    exit;
+  end;
 
   if HasUtf16LEBom(lBytes) or HasUtf16BEBom(lBytes) then
   begin

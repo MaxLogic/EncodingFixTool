@@ -78,6 +78,7 @@ C:\bkp\src\foo\bar\Main.pas
 
 3. **Detect encoding per file** (fast pre-check)
 
+   * If the file is a binary Delphi form (`.dfm` starting with `TPF0`) → skip it before any decoding.
    * Uses `System.WideStrUtils.DetectUTF8Encoding` on the raw bytes.
    * If **US-ASCII** → file is left as-is (never add a BOM).
    * If **UTF-8** → ensure BOM matches `utf8-bom` option; adjust if needed (optionally backing up first).
@@ -122,6 +123,7 @@ Actual run:
 ```
 Fixed: src\Utils\StrTools.pas (detected Windows-1250; saved UTF-8 (BOM=Y, EOL=CRLF))
 Fixed: src\Forms\About.pas (detected UTF-8; Added UTF-8 BOM)
+OK   : src\Forms\Main.dfm (Skipped binary DFM)
 Done in 00:08.972. Files changed: 2. Failures: 0
 ```
 
@@ -140,6 +142,9 @@ Done in 00:08.972. Files changed: 2. Failures: 0
 * **Line endings**
   Dominant EOL (CRLF/LF/CR) is detected from raw bytes and **preserved** by default; trailing newline presence is preserved.
   With `eol=crlf`, solitary `LF` and solitary `CR` separators are normalized to Windows `CRLF`, including ASCII and already-valid UTF-8 files that otherwise would not need encoding repair.
+
+* **DFM files**
+  Binary Delphi forms are detected from raw bytes and skipped unchanged. Text DFM files remain eligible for the normal encoding and optional line-ending repair path.
 
 * **Relative reporting**
   Paths in logs are shown **relative to** the scanned `path`, for readability.
