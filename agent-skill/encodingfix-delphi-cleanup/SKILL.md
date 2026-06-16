@@ -26,19 +26,43 @@ git status --short
 
 If unrelated user changes are dirty, avoid broad cleanup. Narrow `path=...`, override `ext=...`, or ask before touching files outside our work.
 
-2. In a Git worktree, prefer the AI cleanup preset:
+2. In a Git worktree, prefer the AI cleanup preset.
+
+From WSL, run the Bash wrapper so WSL paths are converted before the Windows executable receives them. If the repo `bin` directory is on `PATH`, prefer:
+
+```bash
+EncodingFixTool.sh path=. preset=delphi-ai scope=git-changed format=json
+```
+
+Otherwise, use the repo-local wrapper path:
+
+```bash
+./bin/EncodingFixTool.sh path=. preset=delphi-ai scope=git-changed format=json
+```
+
+From Windows PowerShell, run:
 
 ```powershell
 EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json
 ```
 
-If the executable is not on `PATH`, use a local build such as:
+If the executable is not on `PATH`, use a local Windows build such as:
 
 ```powershell
 .\bin\EncodingFixTool.exe path=. preset=delphi-ai scope=git-changed format=json
 ```
 
-3. Outside Git, use an explicit path and dry run first:
+3. Outside Git, use an explicit path and dry run first.
+
+From WSL:
+
+```bash
+EncodingFixTool.sh path=./src preset=delphi-ai format=json dry
+```
+
+Use `./bin/EncodingFixTool.sh ...` instead if the wrapper is not on `PATH`.
+
+From Windows PowerShell:
 
 ```powershell
 EncodingFixTool path=.\src preset=delphi-ai format=json dry
