@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added `bin/EncodingFixTool.sh` for invoking the Windows executable from WSL with path argument conversion.
+
 ## [v1.1] - 2026-06-11
 
 ### Added
