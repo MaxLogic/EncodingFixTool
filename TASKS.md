@@ -1,10 +1,10 @@
 # Tasks
 
-Next task ID: T-007
+Next task ID: T-008
 
 ## Summary
 Open tasks: 0 (In Progress: 0, Next Today: 0, Next This Week: 0, Next Later: 0, Blocked: 0)
-Done tasks: 6
+Done tasks: 7
 
 ## In Progress
 
@@ -17,6 +17,35 @@ Done tasks: 6
 ## Blocked
 
 ## Done
+
+### T-007 [CLI] Support single-file path targets
+Completed: 2026-06-16
+Outcome:
+- `path=<file>` is accepted as a first-class narrow target.
+- Single-file mode uses the file's parent directory as the scan root and processes only that file when its extension matches the active options or preset.
+- README, agent skill, reference docs, and changelog document the single-file workflow.
+Proof:
+- PASS: `.\bin\EncodingFixTool.Tests.exe --include:SingleFile`
+  Result: exit=0, 1 passed, 0 failed
+- PASS: `.\bin\EncodingFixTool.Tests.exe`
+  Result: exit=0, 31 passed, 0 failed
+- PASS: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
+  Result: exit=0, output contains `EncodingFixTool CLI tests passed.`
+- PASS: `Invoke-ScriptAnalyzer -Path .\tests\Invoke-EncodingFixTool.Tests.ps1 -Severity Warning,Error`
+  Result: exit=0, no findings
+- PASS: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild src\EncodingFixTool.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
+  Result: exit=0, zero warnings, zero errors
+- PASS: `cmd /s /c '"C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat" && msbuild tests\EncodingFixTool.Tests.dproj /t:Build /p:Config=Debug /p:Platform=Win32'`
+  Result: exit=0, zero warnings, zero errors
+- PASS: `& 'F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe' build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Win32 --config Debug --target Build --ai`
+  Result: success
+- PASS: `& 'F:\projects\MaxLogic\DelphiAiKit\bin\DelphiAIKit.exe' build --project tests\EncodingFixTool.Tests.dproj --delphi 23.0 --platform Win32 --config Debug --target Build --ai`
+  Result: success
+- PASS: `.\bin\EncodingFixTool.exe path=. preset=delphi-ai scope=git-changed format=json`
+  Result: exit=0, `failed=0`
+Touches: src/EncodingFixToolCore.pas, tests/EncodingFixTool.IntegrationTests.pas, tests/Invoke-EncodingFixTool.Tests.ps1, README.md, agent-skill/encodingfix-delphi-cleanup/SKILL.md, agent-skill/encodingfix-delphi-cleanup/references/encodingfix-tool.md, CHANGELOG.md
+Verify: integration-test, cli-proof, build
+Notes: Strict TDD followed for the DUnitX single-file regression. Initial RED was exit code 2 for `path=<file>`; GREEN passed after normalizing file paths into explicit single-file scan mode.
 
 ### T-006 [DOC] Refresh README for workflow and presets
 Completed: 2026-06-11

@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$ToolPath = (Join-Path $PSScriptRoot '..\bin\EncodingFixTool.exe')
 )
 
@@ -15,7 +15,7 @@ function Assert-True {
   }
 }
 
-function New-TestRoot {
+function Initialize-TestRoot {
   $lRoot = Join-Path $env:TEMP ('EncodingFixToolTests-' + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $lRoot | Out-Null
   return $lRoot
@@ -35,7 +35,7 @@ function Invoke-Tool {
 
 Assert-True (Test-Path -LiteralPath $ToolPath) "Tool not found: $ToolPath"
 
-$lRoot = New-TestRoot
+$lRoot = Initialize-TestRoot
 try {
   $lReadOnlyFile = Join-Path $lRoot 'readonly.pas'
   [System.IO.File]::WriteAllBytes(
@@ -165,7 +165,27 @@ try {
   $lGlobalBytes = [System.IO.File]::ReadAllBytes((Join-Path $lGlobalRoot 'global.inc'))
   Assert-True (($lGlobalBytes | Where-Object { $_ -eq 13 }).Count -eq 1) "User-global preset should normalize LF to CRLF."
 
-  Write-Host 'EncodingFixTool CLI tests passed.'
+  $lSingleFileRoot = Join-Path $lRoot 'single-file'
+  New-Item -ItemType Directory -Path $lSingleFileRoot | Out-Null
+  $lSingleFile = Join-Path $lSingleFileRoot 'target.pas'
+  $lOtherFile = Join-Path $lSingleFileRoot 'other.pas'
+  [System.IO.File]::WriteAllBytes(
+    $lSingleFile,
+    [System.Text.Encoding]::ASCII.GetBytes("unit target;`nend.")
+  )
+  [System.IO.File]::WriteAllBytes(
+    $lOtherFile,
+    [System.Text.Encoding]::ASCII.GetBytes("unit other;`nend.")
+  )
+
+  $lResult = Invoke-Tool @("path=$lSingleFile", 'recursive=n', 'ext=pas', 'eol=crlf', 's')
+  Assert-True ($lResult.ExitCode -eq 0) "Single-file path should succeed."
+  $lSingleFileBytes = [System.IO.File]::ReadAllBytes($lSingleFile)
+  $lOtherFileBytes = [System.IO.File]::ReadAllBytes($lOtherFile)
+  Assert-True (($lSingleFileBytes | Where-Object { $_ -eq 13 }).Count -eq 1) "Single-file path should normalize the target file."
+  Assert-True (($lOtherFileBytes | Where-Object { $_ -eq 13 }).Count -eq 0) "Single-file path must not process sibling files."
+
+  Write-Output 'EncodingFixTool CLI tests passed.'
 } finally {
   if (Test-Path -LiteralPath $lRoot) {
     Get-ChildItem -LiteralPath $lRoot -Recurse -Force | ForEach-Object {

@@ -52,6 +52,12 @@ If the executable is not on `PATH`, use a local Windows build such as:
 .\bin\EncodingFixTool.exe path=. preset=delphi-ai scope=git-changed format=json
 ```
 
+For one known file, use single-file mode instead of scanning the directory:
+
+```powershell
+.\bin\EncodingFixTool.exe path=.\src\GeneratedUnit.pas preset=delphi-ai format=json
+```
+
 3. Outside Git, use an explicit path and dry run first.
 
 From WSL:
@@ -77,7 +83,7 @@ Treat the run as successful only when the process exits with code `0` and JSON `
 - `changed > 0`: inspect the relevant diffs before reporting done.
 - `skipped > 0`: usually expected for binary `.dfm`; mention it only when relevant.
 - `failed > 0` or exit code `1`: stop and report the file-level failure.
-- Exit code `2`: fix the missing `path` and rerun.
+- Exit code `2`: fix the missing directory or file `path` and rerun.
 
 ## Verify
 

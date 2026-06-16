@@ -1,7 +1,7 @@
 # EncodingFixTool
 
 A fast, parallel, command-line fixer for Delphi source file encodings.
-It scans `.pas`, `.dpr`, …; detects UTF-8/ASCII vs. legacy single-byte encodings; repairs mixed lines (Windows-1250/1252/ANSI), and writes clean UTF-8 with an optional BOM. Line endings are preserved by default, or normalized to Windows CRLF when requested.
+It scans a directory tree or one explicit file; detects UTF-8/ASCII vs. legacy single-byte encodings; repairs mixed lines (Windows-1250/1252/ANSI), and writes clean UTF-8 with an optional BOM. Line endings are preserved by default, or normalized to Windows CRLF when requested.
 
 ---
 
@@ -31,6 +31,9 @@ EncodingFixTool path=C:\Projs\MyApp v bkp-dir=C:\backup\myapp
 :: Only scan .pas files in ./src (not recursive), remove BOM if present
 EncodingFixTool path=.\src recursive=n ext=pas utf8-bom=n
 
+:: Process exactly one file
+EncodingFixTool path=.\src\GeneratedUnit.pas preset=delphi-ai
+
 :: Normalize generated Delphi sources to Windows CRLF while fixing encodings
 EncodingFixTool path=.\src ext=pas,dpr eol=crlf
 
@@ -50,7 +53,7 @@ EncodingFixTool ext="*.pas,*.dpr, .dfm"
 | `dry`         | —       | —                          | off         | Dry run: analyze and report what **would** change; no writes.                                  |
 | `s`/`silent`  | —       | —                          | off         | No console output. (Overrides `verbose`.)                                                      |
 | `v`/`verbose` | —       | —                          | off         | More output: “OK” lines etc. (Ignored if `silent`.)                                            |
-| `path`        | —       | dir                        | current dir | Directory to scan.                                                                             |
+| `path`        | —       | dir/file                   | current dir | Directory to scan, or one file to process.                                                     |
 | `recursive`   | —       | `y`/`n`/`yes`/`no`/`1`/`0` | `y`         | Recurse into subfolders.                                                                       |
 | `ext`         | —       | CSV list                   | `pas,dpr`   | File extensions to include. Smart parsing: accepts `pas`, `.pas`, `*.pas`. Quoted lists OK.    |
 | `preset`      | —       | `delphi-ai`                | —           | Applies Delphi agent cleanup defaults: Delphi extensions, UTF-8 BOM, recursive scan, CRLF.     |
@@ -75,7 +78,7 @@ C:\bkp\src\foo\bar\Main.pas
 ## What it does (algorithm)
 
 1. **Gather files**
-   Walk the `path` (recursively by default), matching the configured extensions.
+   If `path` names a file, process only that file. Otherwise walk the directory `path` (recursively by default), matching the configured extensions.
 
 2. **Process in parallel**
    Uses `TParallel.For` to utilize multiple cores. Console output is synchronized, and the “files changed” and failure counters are atomic.
@@ -151,7 +154,7 @@ Done in 00:08.972. Files changed: 2. Failures: 0
   Binary Delphi forms are detected from raw bytes and skipped unchanged. Text DFM files remain eligible for the normal encoding and optional line-ending repair path.
 
 * **Relative reporting**
-  Paths in logs are shown **relative to** the scanned `path`, for readability.
+  Paths in logs are shown **relative to** the scanned directory, for readability. In single-file mode the scan root is the file's parent directory.
 
 ## AI/agent usage
 
@@ -171,6 +174,12 @@ Use dry-run mode first when the dirty worktree is not fully understood:
 
 ```powershell
 EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json dry
+```
+
+For the narrowest safe repair, point `path` at one file:
+
+```powershell
+EncodingFixTool path=.\src\GeneratedUnit.pas preset=delphi-ai format=json
 ```
 
 Do not run the non-dry command over broad third-party or vendored code unless that is the intended scope. Inspect the JSON summary and `git diff --stat` before committing.
@@ -265,4 +274,4 @@ EncodingFixTool pairs well with [MaxLogic Delphi Companion](https://github.com/M
 
 * `0` – completed without parse errors or per-file failures.
 * `1` – invalid parameter or one or more files failed to process.
-* `2` – the `path` argument didn’t exist.
+* `2` – the `path` argument didn’t exist as either a directory or a file.

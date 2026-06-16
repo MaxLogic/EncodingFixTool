@@ -43,6 +43,12 @@ For a deliberately narrow repair, keep overrides visible:
 EncodingFixTool path=.\src preset=delphi-ai ext=pas,inc format=json dry
 ```
 
+For exactly one file, pass the file path directly. The tool treats the file's directory as the scan root and processes only that file:
+
+```powershell
+EncodingFixTool path=.\src\GeneratedUnit.pas preset=delphi-ai format=json
+```
+
 ## Configured Presets
 
 Repo presets may live in `.encodingfix.json`; user presets may live in:

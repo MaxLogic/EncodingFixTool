@@ -74,6 +74,10 @@ type
     procedure GitChangedScopeProcessesOnlyChangedFiles;
 
     [Test]
+    [Category('SingleFile')]
+    procedure FilePathProcessesOnlyThatFile;
+
+    [Test]
     [Category('PresetConfig')]
     procedure ExplicitConfigPresetAppliesToIncludedExtensions;
 
@@ -568,6 +572,27 @@ begin
       TFile.ReadAllBytes(lChangedFileName));
     AssertBytesEqual(TEncoding.ASCII.GetBytes('const A = 1;'#13#10'end.'), TFile.ReadAllBytes(lUntrackedFileName));
     AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Unchanged;'#10'end.'), TFile.ReadAllBytes(lUnchangedFileName));
+  finally
+    DeleteTree(lRootPath);
+  end;
+end;
+
+procedure TEncodingFixToolIntegrationTests.FilePathProcessesOnlyThatFile;
+var
+  lFileName: string;
+  lOtherFileName: string;
+  lRootPath: string;
+begin
+  lRootPath := TPath.Combine(TPath.GetTempPath, 'EncodingFix-DUnitX-' + TGuid.NewGuid.ToString);
+  TDirectory.CreateDirectory(lRootPath);
+  try
+    lFileName := WriteBytes(lRootPath, 'target.pas', TEncoding.ASCII.GetBytes('unit Target;'#10'end.'));
+    lOtherFileName := WriteBytes(lRootPath, 'other.pas', TEncoding.ASCII.GetBytes('unit Other;'#10'end.'));
+
+    Assert.AreEqual(0, Integer(RunTool(lFileName, ['recursive=n', 'ext=pas', 'eol=crlf', 's'])));
+
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Target;'#13#10'end.'), TFile.ReadAllBytes(lFileName));
+    AssertBytesEqual(TEncoding.ASCII.GetBytes('unit Other;'#10'end.'), TFile.ReadAllBytes(lOtherFileName));
   finally
     DeleteTree(lRootPath);
   end;

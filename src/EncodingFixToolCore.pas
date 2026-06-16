@@ -37,6 +37,7 @@ type
         Silent: boolean;
         Verbose: boolean; // not compatible with Silent
         Path: string;
+        SingleFilePath: string;
         Recursive: boolean; // default y
         Exts: TArray<string>; // normalized: ".pas", ".dpr", etc.
         Utf8Bom: boolean; // default y
@@ -214,6 +215,17 @@ var
   lSearchOpt: TSearchOption;
   lExt, lPattern: string;
 begin
+  if aOptions.SingleFilePath <> '' then
+  begin
+    if IsWantedExt(aOptions.SingleFilePath) then
+    begin
+      Result := [aOptions.SingleFilePath];
+    end else begin
+      Result := [];
+    end;
+    Exit;
+  end;
+
   if aOptions.ScopeMode = TScopeMode.smGitChanged then
   begin
     Exit(CollectGitChangedFiles(aOptions));
@@ -601,7 +613,6 @@ begin
   sc := ScoreDecoded(sANSI);
   if sc > bestScore then
   begin
-    bestScore := sc;
     bestS := sANSI;
     aEncName := 'ANSI';
   end;
@@ -1074,7 +1085,7 @@ const
     '  dry                   : Dry run (no files are changed).' + sLineBreak +
     '  s | silent            : No console output.' + sLineBreak +
     '  v | verbose           : More output (not compatible with silent).' + sLineBreak +
-    '  path=<dir>            : Directory to scan. Default: current working dir.' + sLineBreak +
+    '  path=<dir|file>       : Directory to scan or one file to process. Default: current working dir.' + sLineBreak +
     '  recursive=y|n         : Recurse into subfolders. Default: y.' + sLineBreak +
     '  ext=<csv>             : Extensions list. Default: pas,dpr. Accepts "pas", ".pas", "*.pas".' + sLineBreak +
     '  preset=delphi-ai      : AI cleanup preset for Delphi projects.' + sLineBreak +
@@ -1208,7 +1219,15 @@ var
     begin
       if lValue <> '' then
       begin
-        aOptions.Path := ExpandFileName(lValue);
+        lValue := ExpandFileName(lValue);
+        aOptions.SingleFilePath := '';
+        if TFile.Exists(lValue) then
+        begin
+          aOptions.SingleFilePath := lValue;
+          aOptions.Path := ExtractFilePath(lValue);
+        end else begin
+          aOptions.Path := lValue;
+        end;
       end;
     end else if (aKey = 'recursive') then
     begin
@@ -1393,6 +1412,7 @@ begin
   aOptions.Silent := False;
   aOptions.Verbose := False;
   aOptions.Path := GetCurrentDir;
+  aOptions.SingleFilePath := '';
   aOptions.Recursive := True;
   aOptions.Exts := NormalizeExtList('pas,dpr');
   aOptions.Utf8Bom := True; // default y (Delphi-friendly)

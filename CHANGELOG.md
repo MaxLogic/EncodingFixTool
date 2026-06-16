@@ -1,5 +1,12 @@
 # Changelog
 
+## [v1.3] - 2026-06-16
+
+### Added
+
+- Added `path=<file>` support so EncodingFixTool can process exactly one file while using the file's parent directory as the scan root.
+- Added regression coverage for single-file CLI processing to ensure sibling files are not touched.
+
 ## [v1.2] - 2026-06-16
 
 ### Added
