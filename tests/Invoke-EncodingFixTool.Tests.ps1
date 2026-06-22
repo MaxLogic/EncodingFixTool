@@ -35,6 +35,35 @@ function Invoke-Tool {
 
 Assert-True (Test-Path -LiteralPath $ToolPath) "Tool not found: $ToolPath"
 
+$lSafetyRoot = Initialize-TestRoot
+try {
+  $lSafetyFile = Join-Path $lSafetyRoot 'sample.pas'
+  [System.IO.File]::WriteAllBytes(
+    $lSafetyFile,
+    [System.Text.Encoding]::ASCII.GetBytes("unit sample;`nend.")
+  )
+  $lOriginalBytes = [System.IO.File]::ReadAllBytes($lSafetyFile)
+
+  $lResult = Invoke-Tool @('--help')
+  Assert-True ($lResult.ExitCode -eq 0) "--help should show help and exit 0."
+  Assert-True ($lResult.Output -match 'Usage:') "--help output should include usage text."
+  Assert-True ([Convert]::ToBase64String($lOriginalBytes) -eq [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($lSafetyFile))) "--help must not rewrite files."
+
+  $lResult = Invoke-Tool @('/?')
+  Assert-True ($lResult.ExitCode -eq 0) "/? should show help and exit 0."
+  Assert-True ($lResult.Output -match 'Usage:') "/? output should include usage text."
+  Assert-True ([Convert]::ToBase64String($lOriginalBytes) -eq [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($lSafetyFile))) "/? must not rewrite files."
+
+  $lResult = Invoke-Tool @("path=$lSafetyRoot", '--definitely-not-valid')
+  Assert-True ($lResult.ExitCode -ne 0) "Unknown options should fail before scanning."
+  Assert-True ($lResult.Output -match 'ERROR: unknown parameter:') "Unknown options should explain the parse failure."
+  Assert-True ([Convert]::ToBase64String($lOriginalBytes) -eq [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($lSafetyFile))) "Unknown options must not rewrite files."
+} finally {
+  if (Test-Path -LiteralPath $lSafetyRoot) {
+    Remove-Item -LiteralPath $lSafetyRoot -Recurse -Force
+  }
+}
+
 $lRoot = Initialize-TestRoot
 try {
   $lReadOnlyFile = Join-Path $lRoot 'readonly.pas'

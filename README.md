@@ -49,7 +49,7 @@ EncodingFixTool ext="*.pas,*.dpr, .dfm"
 
 | Param         | Aliases | Values                     | Default     | Meaning                                                                                        |
 | ------------- | ------- | -------------------------- | ----------- | ---------------------------------------------------------------------------------------------- |
-| `help`        | `-h`    | —                          | —           | Prints extended help and exits.                                                                |
+| `help`        | `-h`, `--help`, `/?` | —              | —           | Prints extended help and exits without scanning or writing files.                               |
 | `dry`         | —       | —                          | off         | Dry run: analyze and report what **would** change; no writes.                                  |
 | `s`/`silent`  | —       | —                          | off         | No console output. (Overrides `verbose`.)                                                      |
 | `v`/`verbose` | —       | —                          | off         | More output: “OK” lines etc. (Ignored if `silent`.)                                            |
@@ -262,7 +262,7 @@ CLI arguments override preset values, so a one-off narrower run stays explicit:
 EncodingFixTool path=.\src preset=project-agent ext=pas,inc scope=git-changed format=json
 ```
 
-Invalid preset names, malformed JSON, and invalid preset option values fail before file rewriting starts.
+Invalid preset names, malformed JSON, invalid preset option values, and unknown command-line options fail before file rewriting starts.
 
 ## Related MaxLogic Delphi tooling
 

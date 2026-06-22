@@ -1,5 +1,12 @@
 # Changelog
 
+## [v1.4] - 2026-06-21
+
+### Fixed
+
+- Added non-mutating `--help` and `/?` handling so help requests cannot fall through to file scanning.
+- Added CLI safety regression coverage to keep unknown options as non-mutating parse failures.
+
 ## [v1.3] - 2026-06-16
 
 ### Added

@@ -1081,7 +1081,7 @@ const
     '  EncodingFixTool [params]' + sLineBreak +
     sLineBreak +
     'Params:' + sLineBreak +
-    '  help                  : Show this help text.' + sLineBreak +
+    '  help | -h | --help | /? : Show this help text.' + sLineBreak +
     '  dry                   : Dry run (no files are changed).' + sLineBreak +
     '  s | silent            : No console output.' + sLineBreak +
     '  v | verbose           : More output (not compatible with silent).' + sLineBreak +
@@ -1168,8 +1168,14 @@ var
   begin
     p := Trim(ParamStr(aIndex));
 
-    if startsStr('-', p) {$IFDEF MsWindows}or StartsStr('/', p){$ENDIF} then
+    while (p <> '') and ((p[1] = '-') {$IFDEF MsWindows}or (p[1] = '/'){$ENDIF}) do
+    begin
       delete(p, 1, 1);
+    end;
+    if p = '?' then
+    begin
+      p := 'help';
+    end;
     if p = '' then
     begin
       aKey := '';

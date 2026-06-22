@@ -84,3 +84,5 @@ modules/
 .agents/
 /bin/*.cmds
 /dist/
+*.log
+/issues/
