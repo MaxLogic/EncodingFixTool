@@ -122,7 +122,7 @@ Dry run:
 ```
 Would fix: src\Utils\StrTools.pas (mixed bytes; would save UTF-8 (BOM=Y, EOL=CRLF) (dry-run))
 OK   : src\Main.dpr (UTF-8 OK)
-Done in 00:12.384. Files changed: 0. Failures: 0
+Done in 00:12.384. Files would change: 1. Failures: 0
 ```
 
 Actual run:
@@ -135,6 +135,7 @@ Done in 00:08.972. Files changed: 2. Failures: 0
 ```
 
 > When `silent` is enabled, normal output is suppressed, including the summary and JSON summary. In dry-run mode, change messages are phrased as “Would fix”.
+> Dry-run summaries count files that would change; JSON `changed` uses the same would-change count while leaving file bytes untouched.
 
 ---
 

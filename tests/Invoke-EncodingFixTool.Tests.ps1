@@ -136,6 +136,7 @@ try {
   $lResult = Invoke-Tool @("path=$lRoot", 'recursive=n', 'ext=pas', 'eol=crlf', 'dry')
   Assert-True ($lResult.ExitCode -eq 0) "EOL dry-run should succeed."
   Assert-True ($lResult.Output -match 'Would fix: lfonly\.pas \(Would normalize EOL to CRLF \(dry-run\)\)') "Expected dry-run to report EOL-only normalization."
+  Assert-True ($lResult.Output -match 'Files would change: 1') "Dry-run text summary should report would-change count."
 
   $lBytes = [System.IO.File]::ReadAllBytes($lLfOnlyFile)
   Assert-True (($lBytes | Where-Object { $_ -eq 13 }).Count -eq 0) "Dry-run must not rewrite LF-only file."
@@ -171,6 +172,37 @@ try {
   Assert-True ($lResult.ExitCode -eq 0) "JSON AI workflow run should succeed."
   $lJson = $lResult.Output | ConvertFrom-Json
   Assert-True (($lJson.scanned -eq 2) -and ($lJson.changed -eq 1) -and ($lJson.skipped -eq 1) -and ($lJson.failed -eq 0)) "Expected compact JSON summary counts for AI workflow."
+
+  $lDryJsonRoot = Join-Path $lRoot 'dry-json'
+  New-Item -ItemType Directory -Path $lDryJsonRoot | Out-Null
+  foreach ($i in 1..10) {
+    [System.IO.File]::WriteAllBytes(
+      (Join-Path $lDryJsonRoot "generated$i.pas"),
+      [System.Text.Encoding]::ASCII.GetBytes("unit generated$i;`ninterface`nend.")
+    )
+  }
+
+  $lResult = Invoke-Tool @("path=$lDryJsonRoot", 'preset=delphi-ai', 'format=json', 'dry')
+  Assert-True ($lResult.ExitCode -eq 0) "Dry-run JSON AI workflow should succeed."
+  $lJson = $lResult.Output | ConvertFrom-Json
+  Assert-True (($lJson.scanned -eq 10) -and ($lJson.changed -eq 10) -and ($lJson.skipped -eq 0) -and ($lJson.failed -eq 0)) "Dry-run JSON summary must count files that would change."
+
+  $lDryCrCount = 0
+  Get-ChildItem -LiteralPath $lDryJsonRoot -Filter '*.pas' | ForEach-Object {
+    $lDryCrCount += ([System.IO.File]::ReadAllBytes($_.FullName) | Where-Object { $_ -eq 13 }).Count
+  }
+  Assert-True ($lDryCrCount -eq 0) "Dry-run JSON workflow must not rewrite files."
+
+  $lResult = Invoke-Tool @("path=$lDryJsonRoot", 'preset=delphi-ai', 'format=json')
+  Assert-True ($lResult.ExitCode -eq 0) "Real JSON AI workflow should succeed."
+  $lJson = $lResult.Output | ConvertFrom-Json
+  Assert-True (($lJson.scanned -eq 10) -and ($lJson.changed -eq 10) -and ($lJson.skipped -eq 0) -and ($lJson.failed -eq 0)) "Real JSON summary should match dry-run would-change count."
+
+  $lRealCrCount = 0
+  Get-ChildItem -LiteralPath $lDryJsonRoot -Filter '*.pas' | ForEach-Object {
+    $lRealCrCount += ([System.IO.File]::ReadAllBytes($_.FullName) | Where-Object { $_ -eq 13 }).Count
+  }
+  Assert-True ($lRealCrCount -eq 20) "Real JSON workflow should normalize the ten LF-only files."
 
   $lGlobalRoot = Join-Path $lRoot 'global'
   New-Item -ItemType Directory -Path $lGlobalRoot | Out-Null

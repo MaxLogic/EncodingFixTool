@@ -1,5 +1,11 @@
 # Changelog
 
+## [v1.5] - 2026-06-24
+
+### Fixed
+
+- Fixed dry-run summaries so they report the same files that a real run would change while still leaving file bytes untouched.
+
 ## [v1.4] - 2026-06-21
 
 ### Fixed

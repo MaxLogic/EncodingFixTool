@@ -1524,6 +1524,7 @@ var
   lStopwatch: TStopWatch;
   lSilent: boolean;
   lVerbose: boolean;
+  lChangedLabel: string;
   lLoopProc: TProc<integer>;
   lRoot: string;
 begin
@@ -1595,10 +1596,7 @@ begin
     begin
       if lChanged then
       begin
-        if not lOptions.DryRun then
-        begin
-          lLocalChanged := 1;
-        end;
+        lLocalChanged := 1;
         if (not lSilent) and (lOptions.OutputFormat = TOutputFormat.ofText) then
         begin
           TSafeConsole.WriteLine(Format('%s: %s (%s)',
@@ -1658,11 +1656,18 @@ begin
     [lScannedCount, lChangedCount, lSkippedCount, lFailureCount]));
 end else if not lSilent then
 begin
+  if lOptions.DryRun then
+  begin
+    lChangedLabel := 'Files would change';
+  end else begin
+    lChangedLabel := 'Files changed';
+  end;
   TSafeConsole.WriteLine('');
-  TSafeConsole.WriteLine(Format('Done in %s. Files changed: %d. Failures: %d',
+  TSafeConsole.WriteLine(Format('Done in %s. %s: %d. Failures: %d',
     [FormatDateTime('nn:ss.zzz', // pretty mm:ss.mmm
         EncodeTime(0, lStopwatch.Elapsed.Minutes, lStopwatch.Elapsed.Seconds, lStopwatch.Elapsed.Milliseconds)
         ),
+      lChangedLabel,
       lChangedCount,
       lFailureCount]));
 end;
