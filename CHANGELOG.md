@@ -10,6 +10,11 @@
 
 - Changed `EncodingFixTool.sh` to launch the native Linux64 executable directly instead of invoking the Windows EXE through WSL interoperability.
 - Made Git execution, shell quoting, user config discovery, and path containment platform-correct; Linux avoids treating its UTF-8 default encoding as a legacy ANSI candidate while Windows retains active-code-page compatibility.
+- Updated the agent skill with the native Linux runtime layout, optional WSL `PATH` setup, and fresh-shell verification.
+
+### Fixed
+
+- Bounded Linux Git command execution to 30 seconds and terminated the command process group on timeout so child processes are not left running.
 
 ## [v1.5] - 2026-06-24
 

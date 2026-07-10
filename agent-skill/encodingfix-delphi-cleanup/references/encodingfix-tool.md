@@ -6,6 +6,15 @@ Use this reference when the standard `preset=delphi-ai scope=git-changed` workfl
 
 Prefer `EncodingFixTool` from `PATH` on Windows or `EncodingFixTool.sh` on Linux/WSL. Repo-local paths are `.\bin\EncodingFixTool.exe` on Windows and `./bin/EncodingFixTool.sh` on Linux/WSL. The shell launcher executes `bin/Linux64/EncodingFixTool` directly and does not use Windows interoperability.
 
+On Linux/WSL, the wrapper and binary are one runtime bundle:
+
+```text
+bin/EncodingFixTool.sh
+bin/Linux64/EncodingFixTool
+```
+
+`PATH` is optional. Add the absolute native `bin` path to `~/.profile` for login shells and to `~/.bashrc` for direct non-login interactive Bash shells. Non-interactive automation should receive an explicit `PATH` or use the absolute/repo-local wrapper path. Verify configured shells with `command -v EncodingFixTool.sh` followed by `EncodingFixTool.sh help`.
+
 ## Delphi AI Preset
 
 `preset=delphi-ai` is designed for AI/editor cleanup:
@@ -88,4 +97,4 @@ EncodingFixTool path=. preset=agent scope=git-changed format=json
 
 ## Install Or Copy
 
-To install this as an agent skill, copy the `encodingfix-delphi-cleanup/` folder into the agent's skills directory. Keep `SKILL.md`, `references/`, and `evals/` together.
+To install this as an agent skill, copy the `encodingfix-delphi-cleanup/` folder into the agent's skills directory. Keep `SKILL.md`, `references/`, and `evals/` together. The skill files do not install the CLI runtime: install or build the Windows executable separately, and on Linux/WSL keep `EncodingFixTool.sh` together with `Linux64/EncodingFixTool` as shown above.

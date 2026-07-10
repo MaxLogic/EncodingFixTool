@@ -23,7 +23,7 @@
 interface
 
 uses
-  System.Character, System.Classes, System.Diagnostics, System.Generics.Collections, System.IOUtils, System.StrUtils,
+  System.Character, System.Classes, System.Generics.Collections, System.IOUtils, System.StrUtils,
   System.SyncObjs, System.SysUtils, System.Threading;
 
 type
@@ -100,16 +100,75 @@ type
 implementation
 
 uses
-  System.JSON,
+  System.Diagnostics, System.JSON,
   System.WideStrUtils,
-{$IFDEF POSIX}
-  Posix.Stdlib,
-{$ELSE}
+{$IFDEF MSWINDOWS}
   Winapi.Windows,
 {$ENDIF}
   AutoFree;
 
+{$IFDEF POSIX}
+type
+  TPosixTimespec = record
+    Seconds: Int64;
+    Nanoseconds: Int64;
+  end;
+
 const
+  cLibC = 'libc.so.6';
+  cPosixInterrupted = 4;
+  cPosixNoHang = 1;
+  cPosixSignalKill = 9;
+
+function PosixClockGetTime(aClockId: integer; aTime: Pointer): integer; cdecl;
+  external cLibC name 'clock_gettime';
+function PosixErrorLocation: PInteger; cdecl; external cLibC name '__errno_location';
+function PosixExecv(aPath: PAnsiChar; aArgv: Pointer): integer; cdecl; external cLibC name 'execv';
+procedure PosixExit(aStatus: integer); cdecl; external cLibC name '_exit';
+function PosixFork: integer; cdecl; external cLibC name 'fork';
+function PosixKill(aPid, aSignal: integer): integer; cdecl; external cLibC name 'kill';
+function PosixSetProcessGroup(aPid, aProcessGroup: integer): integer; cdecl; external cLibC name 'setpgid';
+function PosixUSleep(aMicroseconds: Cardinal): integer; cdecl; external cLibC name 'usleep';
+function PosixWaitPid(aPid: integer; aStatus: PInteger; aOptions: integer): integer; cdecl;
+  external cLibC name 'waitpid';
+
+function PosixLastError: integer;
+begin
+  Result := PosixErrorLocation^;
+end;
+
+function PosixMonotonicMilliseconds: Int64;
+var
+  lTime: TPosixTimespec;
+begin
+  if PosixClockGetTime(1, @lTime) <> 0 then
+  begin
+    raise Exception.Create('clock_gettime failed');
+  end;
+  Result := (lTime.Seconds * 1000) + (lTime.Nanoseconds div 1000000);
+end;
+
+function PosixWaitForChild(aPid: integer; out aStatus: integer): boolean;
+var
+  lWaitPid: integer;
+begin
+  repeat
+    lWaitPid := PosixWaitPid(aPid, @aStatus, 0);
+    if lWaitPid = aPid then
+    begin
+      Exit(True);
+    end;
+    if (lWaitPid < 0) and (PosixLastError <> cPosixInterrupted) then
+    begin
+      Exit(False);
+    end;
+  until False;
+end;
+{$ENDIF}
+
+const
+  cCommandPollMs = 10;
+  cCommandTimeoutMs = 30000;
   cUtf8Bom0 = Byte($EF);
   cUtf8Bom1 = Byte($BB);
   cUtf8Bom2 = Byte($BF);
@@ -378,7 +437,16 @@ var
   lStartupInfo: TStartupInfo;
   lWaitResult: Cardinal;
 {$ELSE}
+  lArguments: array[0..3] of PAnsiChar;
   lCommandLine: UTF8String;
+  lPid: integer;
+  lReaped: boolean;
+  lShellArg: UTF8String;
+  lShellName: UTF8String;
+  lShellPath: UTF8String;
+  lStartTime: Int64;
+  lStatus: integer;
+  lWaitPid: integer;
 {$ENDIF}
 begin
 {$IFDEF MSWINDOWS}
@@ -394,7 +462,7 @@ begin
     RaiseLastOSError;
   end;
   try
-    lWaitResult := WaitForSingleObject(lProcessInformation.hProcess, 30000);
+    lWaitResult := WaitForSingleObject(lProcessInformation.hProcess, cCommandTimeoutMs);
     if lWaitResult <> WAIT_OBJECT_0 then
     begin
       TerminateProcess(lProcessInformation.hProcess, 1);
@@ -411,7 +479,78 @@ begin
   end;
 {$ELSE}
   lCommandLine := UTF8String('cd ' + QuoteShellArg(aWorkingDirectory) + ' && ' + aCommandLine);
-  Result := _system(PAnsiChar(lCommandLine));
+  lShellArg := UTF8String('-c');
+  lShellName := UTF8String('sh');
+  lShellPath := UTF8String('/bin/sh');
+  lArguments[0] := PAnsiChar(lShellName);
+  lArguments[1] := PAnsiChar(lShellArg);
+  lArguments[2] := PAnsiChar(lCommandLine);
+  lArguments[3] := nil;
+  lPid := PosixFork;
+  if lPid < 0 then
+  begin
+    raise Exception.Create('fork failed');
+  end;
+  if lPid = 0 then
+  begin
+    if PosixSetProcessGroup(0, 0) <> 0 then
+    begin
+      PosixExit(126);
+    end;
+    PosixExecv(PAnsiChar(lShellPath), @lArguments[0]);
+    PosixExit(127);
+  end;
+
+  lReaped := False;
+  try
+    PosixSetProcessGroup(lPid, lPid);
+    lStartTime := PosixMonotonicMilliseconds;
+    repeat
+      lWaitPid := PosixWaitPid(lPid, @lStatus, cPosixNoHang);
+      if lWaitPid = lPid then
+      begin
+        lReaped := True;
+        Break;
+      end;
+      if lWaitPid < 0 then
+      begin
+        if PosixLastError = cPosixInterrupted then
+        begin
+          Continue;
+        end;
+        raise Exception.Create('waitpid failed');
+      end;
+      if PosixMonotonicMilliseconds - lStartTime >= cCommandTimeoutMs then
+      begin
+        if PosixKill(-lPid, cPosixSignalKill) <> 0 then
+        begin
+          PosixKill(lPid, cPosixSignalKill);
+        end;
+        if not PosixWaitForChild(lPid, lStatus) then
+        begin
+          raise Exception.Create('waitpid failed after timeout');
+        end;
+        lReaped := True;
+        raise Exception.Create('process timed out');
+      end;
+      PosixUSleep(cCommandPollMs * 1000);
+    until False;
+
+    if (lStatus and $7F) = 0 then
+      Result := (lStatus shr 8) and $FF
+    else
+      Result := 128 + (lStatus and $7F);
+  finally
+    if not lReaped then
+    begin
+      PosixKill(-lPid, cPosixSignalKill);
+      PosixKill(lPid, cPosixSignalKill);
+      if not PosixWaitForChild(lPid, lStatus) then
+      begin
+        raise Exception.Create('waitpid cleanup failed');
+      end;
+    end;
+  end;
 {$ENDIF}
 end;
 

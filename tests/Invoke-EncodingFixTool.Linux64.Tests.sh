@@ -206,6 +206,59 @@ import sys
 assert b'\r\n' not in Path(sys.argv[1]).read_bytes()
 PY
 
+timeout_root="$temp_root/command-timeout"
+timeout_bin="$timeout_root/bin"
+timeout_marker="$timeout_root/child.pid"
+mkdir -p "$timeout_bin" "$timeout_root/repo"
+git -C "$timeout_root/repo" init -q
+cat > "$timeout_bin/git" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+for arg in "$@"; do
+  if [[ "$arg" == 'status' ]]; then
+    sleep 120 &
+    child_pid=$!
+    printf '%s %s\n' "$$" "$child_pid" > "$ENCODINGFIX_TIMEOUT_MARKER"
+    wait "$child_pid"
+    exit 0
+  fi
+done
+
+exec "$ENCODINGFIX_REAL_GIT" "$@"
+SH
+chmod +x "$timeout_bin/git"
+timeout_start=$SECONDS
+set +e
+timeout_output="$(PATH="$timeout_bin:$PATH" \
+  ENCODINGFIX_REAL_GIT="$(command -v git)" \
+  ENCODINGFIX_TIMEOUT_MARKER="$timeout_marker" \
+  timeout --kill-after=2s 35s "$tool" \
+  path="$timeout_root/repo" preset=delphi-ai scope=git-changed format=json 2>&1)"
+timeout_exit=$?
+set -e
+timeout_elapsed=$((SECONDS - timeout_start))
+[[ -f "$timeout_marker" ]] || fail 'Timed command did not record its Git and child PIDs.'
+read -r timeout_git_pid timeout_child_pid < "$timeout_marker"
+for timeout_pid in "$timeout_git_pid" "$timeout_child_pid"; do
+  for _ in {1..20}; do
+    if ! kill -0 "$timeout_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.1
+  done
+  if kill -0 "$timeout_pid" 2>/dev/null; then
+    kill -KILL "$timeout_pid" 2>/dev/null || true
+    fail "Timed-out command left PID $timeout_pid running."
+  fi
+done
+[[ $timeout_exit -eq 1 ]] ||
+  fail "Command timeout must exit 1 without reaching the 35-second harness limit: exit=$timeout_exit output=$timeout_output"
+[[ $timeout_elapsed -ge 25 && $timeout_elapsed -lt 35 ]] ||
+  fail "Command timeout must complete near 30 seconds: elapsed=${timeout_elapsed}s"
+[[ "$timeout_output" == *'process timed out'* ]] ||
+  fail "Command timeout diagnostic missing: $timeout_output"
+
 help_output="$("$tool" help)"
 [[ "$help_output" != *$'\r'* ]] || fail 'Linux help output must use native LF line endings.'
 

@@ -15,6 +15,11 @@
       "id": 3,
       "prompt": "The worktree has my unrelated changes plus your generated Delphi units. Fix only your files' line endings and tell me what happened.",
       "expected_output": "The agent should not run a broad scope=git-changed cleanup over all dirty files. It should narrow path or extensions, ask if needed, run dry when scope is unclear, and report scanned/changed/skipped/failed counts."
+    },
+    {
+      "id": 4,
+      "prompt": "Set up EncodingFixTool for an agent running natively in WSL without Windows interop. Explain whether PATH is required and verify the installation.",
+      "expected_output": "The agent should keep bin/EncodingFixTool.sh beside bin/Linux64/EncodingFixTool, explain that PATH is optional unless the wrapper must run by name, use a native Linux bin path in ~/.profile for login shells and ~/.bashrc for non-login interactive Bash when requested, require an explicit path or PATH for non-interactive automation, and verify command resolution plus help output."
     }
   ]
 }

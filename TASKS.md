@@ -1,10 +1,10 @@
 # Tasks
 
-Next task ID: T-010
+Next task ID: T-011
 
 ## Summary
 Open tasks: 1 (In Progress: 0, Next Today: 0, Next This Week: 0, Next Later: 1, Blocked: 0)
-Done tasks: 8
+Done tasks: 9
 
 ## In Progress
 
@@ -14,22 +14,42 @@ Done tasks: 8
 
 ## Next - Later
 
-### T-009 [CLI] Bound POSIX child-process execution
+### T-010 [BUILD] Repair Delphi 12 command-line Linux64 RTL loading
 Outcome:
-- Linux command execution enforces the same 30-second upper bound as Windows without depending on an optional external `timeout` command.
-- Timeout cleanup terminates and reaps the child process without leaving Git processes behind.
-- Native Linux regression coverage verifies successful commands and timeout behavior.
+- Delphi 12 command-line Linux64 builds can load the installed `Posix.Unistd.dcu`.
+- DelphiAIKit and raw MSBuild rebuild Linux64 projects as reliably as the RAD Studio IDE.
 Proof:
-- Run: `wsl.exe -e bash tests/Invoke-EncodingFixTool.Linux64.Tests.sh`
-  Expect: exit=0, timeout regression passes, and no test-owned child process remains.
 - Run: `& $env:DAK_EXE build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Linux64 --config Release --target Rebuild --ai --show-warnings`
   Expect: exit=0, zero warnings, zero errors.
-Touches: src/EncodingFixToolCore.pas, tests/Invoke-EncodingFixTool.Linux64.Tests.sh
-Verify: integration-test, build-only
+- Run a minimal Linux64 program whose only dependency is `System.SysUtils` through `dcclinux64.exe`.
+  Expect: compilation reaches the linker instead of failing with F2063 for `Posix.Unistd`.
+Touches: Delphi 12 installation or DelphiAIKit build environment
+Verify: build-only
+Notes: The project search path contains the expected Delphi 12 Linux64 release RTL folder, and namespace variants do not change the failure. A minimal `uses Posix.Unistd` probe fails under `dcclinux64.exe`; `System.SysUtils` fails transitively on the same unit, while other POSIX DCUs load. Raw MSBuild reproduces DAK, so this is not caused by EncodingFixTool conditionals or DAK command construction. RAD Studio succeeds through its in-process Linux64 compiler DLL.
 
 ## Blocked
 
 ## Done
+
+### T-009 [CLI] Bound POSIX child-process execution
+Completed: 2026-07-11
+Outcome:
+- Linux command execution enforces the same 30-second upper bound as Windows without depending on an optional external `timeout` command.
+- Timeout cleanup terminates and reaps the child process group without leaving Git processes behind.
+- Native Linux regression coverage verifies successful commands and timeout behavior.
+Proof:
+- PASS: RAD Studio Linux64 Release rebuild.
+  Result: zero errors; produced `bin/Linux64/EncodingFixTool` as a native ELF executable.
+- PASS: `wsl.exe -e bash tests/Invoke-EncodingFixTool.Linux64.Tests.sh`
+  Result: exit=0 in 36.2 seconds; timeout regression passed and verified that both the shell and descendant process were gone.
+- PASS: `.\bin\EncodingFixTool.Tests.exe`
+  Result: exit=0, 31 passed, 0 failed, 0 ignored.
+- PASS: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
+  Result: exit=0, output contains `EncodingFixTool CLI tests passed.`
+- DIAGNOSTIC: DelphiAIKit, raw MSBuild, and a minimal `dcclinux64.exe` probe all fail in the installed command-line toolchain with F2063 for `Posix.Unistd`; tracked separately as T-010.
+Touches: src/EncodingFixToolCore.pas, tests/Invoke-EncodingFixTool.Linux64.Tests.sh, agent-skill/encodingfix-delphi-cleanup/
+Verify: integration-test, build-only
+Notes: Strict RED/GREEN was completed. RED reached the 35-second emergency harness limit with exit 124. GREEN enforces the production timeout internally, terminates the process group, reaps the child, and emits `process timed out`. The IDE-built Linux64 executable supplied the native runtime proof; T-010 isolates the unrelated standalone compiler installation failure.
 
 ### T-008 [CLI] Add native Linux64 support
 Completed: 2026-07-10

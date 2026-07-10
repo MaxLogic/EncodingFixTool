@@ -16,6 +16,35 @@ Run EncodingFixTool after AI/editor work may have changed Delphi line endings or
 
 Do not use it for unrelated dirty files, vendored code, non-Delphi cleanup, or as a replacement for the repo's build/test gates. Binary `.dfm` files are safe because EncodingFixTool skips them.
 
+## Runtime Setup
+
+The Linux/WSL runtime consists of both files in this layout:
+
+```text
+bin/EncodingFixTool.sh
+bin/Linux64/EncodingFixTool
+```
+
+The wrapper launches the native Linux64 binary directly. It does not use `EncodingFixTool.exe`, `wslpath`, or WSL Windows interoperability. Keep the wrapper executable and the `Linux64` directory next to it.
+
+Adding `bin` to `PATH` is optional. It is needed only to invoke `EncodingFixTool.sh` by name from any directory; repo-local `./bin/EncodingFixTool.sh` works without it. For Bash login shells, add the native Linux path to `~/.profile`:
+
+```bash
+case ":$PATH:" in
+  *:/absolute/path/to/EncodingFix/bin:*) ;;
+  *) export PATH="/absolute/path/to/EncodingFix/bin:$PATH" ;;
+esac
+```
+
+Add the same idempotent entry to `~/.bashrc` when direct non-login interactive shells must resolve it. Non-interactive automation does not reliably read either file; give the runner an explicit `PATH` or use the absolute/repo-local wrapper path.
+
+For a checkout on a mounted Windows drive, convert the directory once when determining that native path, for example `wslpath -u 'F:\projects\MaxLogic\EncodingFix\bin'`. Verify the shell modes configured by our setup before relying on the command:
+
+```bash
+command -v EncodingFixTool.sh
+EncodingFixTool.sh help >/dev/null
+```
+
 ## Core Workflow
 
 1. Check the dirty set first:
@@ -28,7 +57,7 @@ If unrelated user changes are dirty, avoid broad cleanup. Narrow `path=...`, ove
 
 2. In a Git worktree, prefer the AI cleanup preset.
 
-From Linux or WSL, run the Bash wrapper. It launches the native Linux64 binary directly, so Linux paths are passed through unchanged and WSL Windows interoperability is not involved. If the repo `bin` directory is on `PATH`, prefer:
+From Linux or WSL, run the Bash wrapper. Linux paths are passed through unchanged. If the repo `bin` directory is on `PATH`, prefer:
 
 ```bash
 EncodingFixTool.sh path=. preset=delphi-ai scope=git-changed format=json
