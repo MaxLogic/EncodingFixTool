@@ -67,6 +67,7 @@ type
     function CollectFiles(const aOptions: TOptions): TArray<string>;
     function CollectGitChangedFiles(const aOptions: TOptions): TArray<string>;
     function IsWantedExt(const aFile: string): boolean;
+    function IsPathWithin(const aRootPath, aFileName: string): boolean;
     function QuoteShellArg(const aValue: string): string;
     function RunCommand(const aCommandLine, aWorkingDirectory: string): integer;
 
@@ -101,7 +102,11 @@ implementation
 uses
   System.JSON,
   System.WideStrUtils,
+{$IFDEF POSIX}
+  Posix.Stdlib,
+{$ELSE}
   Winapi.Windows,
+{$ENDIF}
   AutoFree;
 
 const
@@ -251,6 +256,8 @@ function TEncodingFixTool.CollectGitChangedFiles(const aOptions: TOptions): TArr
 var
   g: TGarbos;
   lCommand: string;
+  lEntries: TArray<string>;
+  lEntryIndex: integer;
   lExitCode: integer;
   lFile: string;
   lFiles: TList<string>;
@@ -259,7 +266,6 @@ var
   lPath: string;
   lRootPath: string;
   lScanRootPath: string;
-  lSepPos: integer;
   lStatus: string;
   lWorkTreeRootFileName: string;
 begin
@@ -267,8 +273,13 @@ begin
   lOutputFileName := TPath.Combine(TPath.GetTempPath, 'EncodingFixTool-git-' + TGuid.NewGuid.ToString + '.txt');
   lWorkTreeRootFileName := TPath.Combine(TPath.GetTempPath, 'EncodingFixTool-git-root-' + TGuid.NewGuid.ToString + '.txt');
   try
+{$IFDEF MSWINDOWS}
     lCommand := 'cmd.exe /C git -C ' + QuoteShellArg(aOptions.Path) + ' rev-parse --show-toplevel > ' +
       QuoteShellArg(lWorkTreeRootFileName);
+{$ELSE}
+    lCommand := 'git -C ' + QuoteShellArg(aOptions.Path) + ' rev-parse --show-toplevel > ' +
+      QuoteShellArg(lWorkTreeRootFileName);
+{$ENDIF}
     lExitCode := RunCommand(lCommand, aOptions.Path);
     if lExitCode <> 0 then
     begin
@@ -277,16 +288,26 @@ begin
     lRootPath := IncludeTrailingPathDelimiter(TFile.ReadAllText(lWorkTreeRootFileName, TEncoding.UTF8).Trim);
     lScanRootPath := IncludeTrailingPathDelimiter(ExpandFileName(aOptions.Path));
 
+{$IFDEF MSWINDOWS}
     lCommand := 'cmd.exe /C git -C ' + QuoteShellArg(aOptions.Path) +
-      ' status --porcelain --untracked-files=all > ' + QuoteShellArg(lOutputFileName);
+      ' status --porcelain=v1 -z --untracked-files=all > ' + QuoteShellArg(lOutputFileName);
+{$ELSE}
+    lCommand := 'git -C ' + QuoteShellArg(aOptions.Path) +
+      ' status --porcelain=v1 -z --untracked-files=all > ' + QuoteShellArg(lOutputFileName);
+{$ENDIF}
     lExitCode := RunCommand(lCommand, aOptions.Path);
     if lExitCode <> 0 then
     begin
       raise Exception.Create('git status failed');
     end;
 
-    for lLine in TFile.ReadAllLines(lOutputFileName, TEncoding.UTF8) do
+    lEntries := TEncoding.UTF8.GetString(TFile.ReadAllBytes(lOutputFileName))
+      .Split([#0], TStringSplitOptions.ExcludeEmpty);
+    lEntryIndex := 0;
+    while lEntryIndex <= High(lEntries) do
     begin
+      lLine := lEntries[lEntryIndex];
+      Inc(lEntryIndex);
       if Length(lLine) < 4 then
       begin
         Continue;
@@ -298,16 +319,15 @@ begin
         Continue;
       end;
 
-      lPath := Copy(lLine, 4, MaxInt).Trim([' ', '"']);
-      lSepPos := Pos(' -> ', lPath);
-      if lSepPos > 0 then
+      lPath := Copy(lLine, 4, MaxInt);
+      if (Pos('R', lStatus) > 0) or (Pos('C', lStatus) > 0) then
       begin
-        lPath := Copy(lPath, lSepPos + 4, MaxInt).Trim([' ', '"']);
+        Inc(lEntryIndex); // -z appends the rename/copy source as a second entry.
       end;
       lPath := StringReplace(lPath, '/', TPath.DirectorySeparatorChar, [rfReplaceAll]);
       lFile := TPath.GetFullPath(TPath.Combine(lRootPath, lPath));
 
-      if TFile.Exists(lFile) and StartsText(lScanRootPath, lFile) and IsWantedExt(lFile) then
+      if TFile.Exists(lFile) and IsPathWithin(lScanRootPath, lFile) and IsWantedExt(lFile) then
       begin
         lFiles.Add(lFile);
       end;
@@ -331,19 +351,37 @@ begin
   Result := fWantedExts.IndexOf(LowerCase(ExtractFileExt(aFile))) >= 0;
 end;
 
+function TEncodingFixTool.IsPathWithin(const aRootPath, aFileName: string): boolean;
+begin
+{$IFDEF MSWINDOWS}
+  Result := StartsText(aRootPath, aFileName);
+{$ELSE}
+  Result := StartsStr(aRootPath, aFileName);
+{$ENDIF}
+end;
+
 function TEncodingFixTool.QuoteShellArg(const aValue: string): string;
 begin
+{$IFDEF MSWINDOWS}
   Result := '"' + StringReplace(aValue, '"', '\"', [rfReplaceAll]) + '"';
+{$ELSE}
+  Result := #39 + StringReplace(aValue, #39, #39 + '"' + #39 + '"' + #39, [rfReplaceAll]) + #39;
+{$ENDIF}
 end;
 
 function TEncodingFixTool.RunCommand(const aCommandLine, aWorkingDirectory: string): integer;
 var
+{$IFDEF MSWINDOWS}
   lExitCode: DWORD;
   lCommandLineChars: TArray<Char>;
   lProcessInformation: TProcessInformation;
   lStartupInfo: TStartupInfo;
   lWaitResult: Cardinal;
+{$ELSE}
+  lCommandLine: UTF8String;
+{$ENDIF}
 begin
+{$IFDEF MSWINDOWS}
   lCommandLineChars := aCommandLine.ToCharArray;
   SetLength(lCommandLineChars, Length(lCommandLineChars) + 1);
   ZeroMemory(@lProcessInformation, SizeOf(lProcessInformation));
@@ -371,6 +409,10 @@ begin
     CloseHandle(lProcessInformation.hThread);
     CloseHandle(lProcessInformation.hProcess);
   end;
+{$ELSE}
+  lCommandLine := UTF8String('cd ' + QuoteShellArg(aWorkingDirectory) + ' && ' + aCommandLine);
+  Result := _system(PAnsiChar(lCommandLine));
+{$ENDIF}
 end;
 
 function TEncodingFixTool.IsUtf8Strict(const aBytes: TBytes): boolean;
@@ -570,8 +612,11 @@ end;
 
 function TEncodingFixTool.DecodeBestPerLine(const aLineBytes: TBytes; out aEncName: string): string;
 var
+{$IFDEF MSWINDOWS}
   lANSI: TEncoding;
-  s1250, s1252, sANSI: string;
+  sANSI: string;
+{$ENDIF}
+  s1250, s1252: string;
   bestS: string;
   bestScore, sc: integer;
 begin
@@ -592,11 +637,12 @@ begin
   end;
 
   // 2) Try single-byte candidates; they never fail, so score them.
-  lANSI := TEncoding.ANSI;
-
   s1250 := fEnc1250.GetString(aLineBytes);
   s1252 := fEnc1252.GetString(aLineBytes);
+{$IFDEF MSWINDOWS}
+  lANSI := TEncoding.ANSI;
   sANSI := lANSI.GetString(aLineBytes);
+{$ENDIF}
 
   bestS := s1250;
   aEncName := 'Windows-1250';
@@ -605,17 +651,21 @@ begin
   sc := ScoreDecoded(s1252);
   if sc > bestScore then
   begin
+{$IFDEF MSWINDOWS}
     bestScore := sc;
+{$ENDIF}
     bestS := s1252;
     aEncName := 'Windows-1252';
   end;
 
+{$IFDEF MSWINDOWS}
   sc := ScoreDecoded(sANSI);
   if sc > bestScore then
   begin
     bestS := sANSI;
     aEncName := 'ANSI';
   end;
+{$ENDIF}
 
   Result := bestS;
 end;
@@ -623,17 +673,15 @@ end;
 function TEncodingFixTool.MakeBackupPath(const aOptions: TOptions; const aRootPath, aFile: string): string;
 var
   lRel: string;
+  lRootPath: string;
 begin
-  // Normalize root and compute relative path
-  // Ensure trailing delimiter on root
   lRel := aFile;
   if aRootPath <> '' then
   begin
-    // Make relative to root path if possible
-    // We compare case-insensitively on Windows
-    if SameText(copy(aFile, 1, length(IncludeTrailingPathDelimiter(aRootPath))), IncludeTrailingPathDelimiter(aRootPath)) then
+    lRootPath := IncludeTrailingPathDelimiter(aRootPath);
+    if IsPathWithin(lRootPath, aFile) then
     begin
-      lRel := copy(aFile, length(IncludeTrailingPathDelimiter(aRootPath)) + 1, MaxInt);
+      lRel := copy(aFile, length(lRootPath) + 1, MaxInt);
     end;
   end;
 
@@ -648,7 +696,7 @@ begin
   if aRootPath <> '' then
   begin
     sRoot := IncludeTrailingPathDelimiter(aRootPath);
-    if SameText(copy(aFile, 1, length(sRoot)), sRoot) then
+    if IsPathWithin(sRoot, aFile) then
       Result := copy(aFile, length(sRoot) + 1, MaxInt);
   end;
 end;
@@ -715,7 +763,10 @@ var
   lHadTrailingEOL: boolean;
   rb: RawByteString;
   lEncType: TEncodeType;
-  lCntUtf8, lCnt1250, lCnt1252, lCntAnsi, lCntAscii: Integer;
+  lCntUtf8, lCnt1250, lCnt1252: Integer;
+{$IFDEF MSWINDOWS}
+  lCntAnsi: Integer;
+{$ENDIF}
   lEncName: string;
   lReasonEnc: string;
   lEolChanged: boolean;
@@ -977,8 +1028,9 @@ begin
   lCntUtf8 := 0;
   lCnt1250 := 0;
   lCnt1252 := 0;
+{$IFDEF MSWINDOWS}
   lCntAnsi := 0;
-  lCntAscii := 0;
+{$ENDIF}
 
   lFirst := True;
   for lLine in lLinesBytes do
@@ -995,11 +1047,13 @@ begin
     else if lEncName = 'Windows-1250' then
       Inc(lCnt1250)
     else if lEncName = 'Windows-1252' then
+{$IFDEF MSWINDOWS}
       Inc(lCnt1252)
     else if lEncName = 'ANSI' then
-      Inc(lCntAnsi)
-    else if lEncName = 'ASCII' then
-      Inc(lCntAscii);
+      Inc(lCntAnsi);
+{$ELSE}
+      Inc(lCnt1252);
+{$ENDIF}
   end;
 
   if (length(lLinesBytes) > 0) and lHadTrailingEOL then
@@ -1012,7 +1066,9 @@ begin
   if lCntUtf8 > 0 then Inc(lKinds);
   if lCnt1250 > 0 then Inc(lKinds);
   if lCnt1252 > 0 then Inc(lKinds);
+{$IFDEF MSWINDOWS}
   if lCntAnsi > 0 then Inc(lKinds);
+{$ENDIF}
 
   if lKinds > 1 then
     lReasonEnc := 'mixed bytes'
@@ -1022,8 +1078,10 @@ begin
     lReasonEnc := 'detected Windows-1250'
   else if lCnt1252 > 0 then
     lReasonEnc := 'detected Windows-1252'
+{$IFDEF MSWINDOWS}
   else if lCntAnsi > 0 then
     lReasonEnc := 'detected ANSI'
+{$ENDIF}
   else
     lReasonEnc := 'detected ASCII';
 
@@ -1336,7 +1394,7 @@ var
         Exit(lProbe);
       end;
       lParent := ExtractFileDir(ExcludeTrailingPathDelimiter(lDir));
-      if SameText(lParent, ExcludeTrailingPathDelimiter(lDir)) then
+      if SameFileName(lParent, ExcludeTrailingPathDelimiter(lDir)) then
       begin
         Break;
       end;
@@ -1347,14 +1405,26 @@ var
 
   function UserConfigPath: string;
   var
-    lAppData: string;
+    lConfigRoot: string;
   begin
-    lAppData := GetEnvironmentVariable('APPDATA');
-    if lAppData = '' then
+{$IFDEF MSWINDOWS}
+    lConfigRoot := GetEnvironmentVariable('APPDATA');
+{$ELSE}
+    lConfigRoot := GetEnvironmentVariable('XDG_CONFIG_HOME');
+    if lConfigRoot = '' then
+    begin
+      lConfigRoot := GetEnvironmentVariable('HOME');
+      if lConfigRoot <> '' then
+      begin
+        lConfigRoot := TPath.Combine(lConfigRoot, '.config');
+      end;
+    end;
+{$ENDIF}
+    if lConfigRoot = '' then
     begin
       Exit('');
     end;
-    Result := TPath.Combine(TPath.Combine(TPath.Combine(lAppData, 'MaxLogic'), 'EncodingFixTool'), 'config.json');
+    Result := TPath.Combine(TPath.Combine(TPath.Combine(lConfigRoot, 'MaxLogic'), 'EncodingFixTool'), 'config.json');
   end;
 
   function ApplyPresetFromFile(const aFileName, aPresetName: string; var aFound: boolean; out aError: string): boolean;

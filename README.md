@@ -1,7 +1,7 @@
 # EncodingFixTool
 
 A fast, parallel, command-line fixer for Delphi source file encodings.
-It scans a directory tree or one explicit file; detects UTF-8/ASCII vs. legacy single-byte encodings; repairs mixed lines (Windows-1250/1252/ANSI), and writes clean UTF-8 with an optional BOM. Line endings are preserved by default, or normalized to Windows CRLF when requested.
+It scans a directory tree or one explicit file; detects UTF-8/ASCII vs. legacy single-byte encodings; repairs mixed lines (Windows-1250/1252, plus the active ANSI code page on Windows), and writes clean UTF-8 with an optional BOM. Line endings are preserved by default, or normalized to Windows CRLF when requested.
 
 ---
 
@@ -42,6 +42,17 @@ EncodingFixTool ext="*.pas,*.dpr, .dfm"
 ```
 
 > Tip: Parameters accept `key=value` or `key:value`. You can prefix flags with `-` (and `/` on Windows), e.g. `-v`, `-dry`.
+
+### Windows and Linux
+
+The Windows build is `bin\EncodingFixTool.exe`. The native Linux64 build is `bin/Linux64/EncodingFixTool`.
+From Linux or WSL, use the thin launcher so arguments remain native Linux paths:
+
+```bash
+./bin/EncodingFixTool.sh path=./src preset=delphi-ai format=json
+```
+
+The launcher executes the Linux64 ELF binary directly. It does not start a Windows process and does not require WSL Windows interoperability or `wslpath`.
 
 ---
 
@@ -97,7 +108,7 @@ C:\bkp\src\foo\bar\Main.pas
    * For each line, try:
 
      * **UTF-8 (strict)** — if it round-trips, use it.
-     * **Windows-1250** (Central Europe/PL), **Windows-1252** (Western/DE), and **ANSI** — decode and **score**:
+     * **Windows-1250** (Central Europe/PL) and **Windows-1252** (Western/DE) — decode and **score**. Windows builds also score the active system ANSI code page; Linux does not treat its UTF-8 default encoding as ANSI:
 
        * +2 for valid Polish/German diacritics,
        * +1 for typical source characters (letters/digits/whitespace/common punctuation),
@@ -165,6 +176,12 @@ For AI coding agents working in Delphi projects, run the cleanup from the reposi
 EncodingFixTool path=. preset=delphi-ai scope=git-changed format=json
 ```
 
+From Linux or WSL:
+
+```bash
+EncodingFixTool.sh path=. preset=delphi-ai scope=git-changed format=json
+```
+
 This command is intentionally compact for agent workflows:
 
 * `preset=delphi-ai` applies the Delphi cleanup defaults.
@@ -206,7 +223,7 @@ Example prompt:
 After editing Delphi files, use the EncodingFix Delphi cleanup skill before running the build.
 ```
 
-The skill itself is self-contained, but the `EncodingFixTool` executable must be available on `PATH` or via a repo-local path such as `.\bin\EncodingFixTool.exe`.
+The skill itself is self-contained, but the platform executable must be available on `PATH` or through the repo-local Windows EXE / Linux shell launcher.
 
 ### Use with Claude Code
 
@@ -227,7 +244,8 @@ User-defined presets are JSON objects under a top-level `presets` key. Configura
 Recommended locations:
 
 * Repo-local: `.encodingfix.json`, discovered from `path` upward.
-* User-global: `%APPDATA%\MaxLogic\EncodingFixTool\config.json`.
+* User-global on Windows: `%APPDATA%\MaxLogic\EncodingFixTool\config.json`.
+* User-global on Linux: `$XDG_CONFIG_HOME/MaxLogic/EncodingFixTool/config.json`, falling back to `$HOME/.config/MaxLogic/EncodingFixTool/config.json`.
 * Explicit one-off: pass `config=path\to\config.json`.
 
 Precedence is conservative and predictable:

@@ -1,7 +1,9 @@
 program EncodingFixTool;
 
 {$APPTYPE CONSOLE}
+{$IFDEF MSWINDOWS}
 {$R *.res}
+{$ENDIF}
 
 uses
   System.SysUtils,

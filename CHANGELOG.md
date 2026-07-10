@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added a native Delphi Linux64 build at `bin/Linux64/EncodingFixTool`, including native regression coverage for encoding repair, CRLF normalization, backups, XDG configuration, Git-changed scope, shell quoting, and case-sensitive paths.
+
+### Changed
+
+- Changed `EncodingFixTool.sh` to launch the native Linux64 executable directly instead of invoking the Windows EXE through WSL interoperability.
+- Made Git execution, shell quoting, user config discovery, and path containment platform-correct; Linux avoids treating its UTF-8 default encoding as a legacy ANSI candidate while Windows retains active-code-page compatibility.
+
 ## [v1.5] - 2026-06-24
 
 ### Fixed

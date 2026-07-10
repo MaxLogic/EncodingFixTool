@@ -1,10 +1,10 @@
 # Tasks
 
-Next task ID: T-008
+Next task ID: T-010
 
 ## Summary
-Open tasks: 0 (In Progress: 0, Next Today: 0, Next This Week: 0, Next Later: 0, Blocked: 0)
-Done tasks: 7
+Open tasks: 1 (In Progress: 0, Next Today: 0, Next This Week: 0, Next Later: 1, Blocked: 0)
+Done tasks: 8
 
 ## In Progress
 
@@ -14,9 +14,47 @@ Done tasks: 7
 
 ## Next - Later
 
+### T-009 [CLI] Bound POSIX child-process execution
+Outcome:
+- Linux command execution enforces the same 30-second upper bound as Windows without depending on an optional external `timeout` command.
+- Timeout cleanup terminates and reaps the child process without leaving Git processes behind.
+- Native Linux regression coverage verifies successful commands and timeout behavior.
+Proof:
+- Run: `wsl.exe -e bash tests/Invoke-EncodingFixTool.Linux64.Tests.sh`
+  Expect: exit=0, timeout regression passes, and no test-owned child process remains.
+- Run: `& $env:DAK_EXE build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Linux64 --config Release --target Rebuild --ai --show-warnings`
+  Expect: exit=0, zero warnings, zero errors.
+Touches: src/EncodingFixToolCore.pas, tests/Invoke-EncodingFixTool.Linux64.Tests.sh
+Verify: integration-test, build-only
+
 ## Blocked
 
 ## Done
+
+### T-008 [CLI] Add native Linux64 support
+Completed: 2026-07-10
+Outcome:
+- `EncodingFixTool.dproj` builds a native Linux64 executable at `bin/Linux64/EncodingFixTool` while preserving Win32 and Win64 builds.
+- Platform-sensitive process execution, Git integration, shell quoting, user config lookup, paths, encodings, and line endings behave correctly on Windows and Linux.
+- `EncodingFixTool.sh` launches the native Linux64 binary directly without `wslpath` or Windows executable interop.
+- Native Linux regression coverage verifies ELF execution, CRLF cleanup, legacy encoding conversion, config lookup, backups, case-sensitive paths, and Git paths including Unicode, rename, and copy records.
+- README, agent-skill guidance, and CHANGELOG document the native Linux workflow.
+Proof:
+- PASS: `& $env:DAK_EXE build --project src\EncodingFixTool.dproj --delphi 23.0 --platform Linux64 --config Release --target Rebuild --ai --show-warnings`
+  Result: exit=0, zero warnings, zero errors, ELF artifact exists, and the Windows resource hash is preserved.
+- PASS: `wsl.exe -e bash tests/Invoke-EncodingFixTool.Linux64.Tests.sh`
+  Result: exit=0, output contains `EncodingFixTool Linux64 tests passed.`
+- PASS: `.\bin\EncodingFixTool.Tests.exe`
+  Result: exit=0, 31 passed, 0 failed, 0 ignored.
+- PASS: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Invoke-EncodingFixTool.Tests.ps1`
+  Result: exit=0, output contains `EncodingFixTool CLI tests passed.`
+- PASS: Win32 and Win64 Release rebuilds through DelphiAIKit with warnings enabled.
+  Result: exit=0, zero warnings, zero errors for both platforms.
+- PASS: PowerShell Script Analyzer, ShellCheck, Bash syntax, project XML parsing, and `git diff --check`.
+  Result: no findings.
+Touches: src/EncodingFixTool.dpr, src/EncodingFixTool.dproj, src/EncodingFixTool.res, src/EncodingFixToolCore.pas, bin/EncodingFixTool.sh, tests/Invoke-EncodingFixTool.Linux64.Tests.sh, README.md, agent-skill/encodingfix-delphi-cleanup/SKILL.md, agent-skill/encodingfix-delphi-cleanup/references/encodingfix-tool.md, CHANGELOG.md
+Verify: integration-test, cli-proof, build-only
+Notes: The approved design keeps `sLineBreak` for platform-native console help and explicit `#13#10` for `eol=crlf`. Linux user config follows XDG with `$HOME/.config` fallback. RED/GREEN was strict for native artifact, Linux path containment, and Unicode Git paths; supplementary platform and rename/copy coverage was completed under GREEN.
 
 ### T-007 [CLI] Support single-file path targets
 Completed: 2026-06-16

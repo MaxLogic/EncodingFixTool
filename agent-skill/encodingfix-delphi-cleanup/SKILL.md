@@ -28,7 +28,7 @@ If unrelated user changes are dirty, avoid broad cleanup. Narrow `path=...`, ove
 
 2. In a Git worktree, prefer the AI cleanup preset.
 
-From WSL, run the Bash wrapper so WSL paths are converted before the Windows executable receives them. If the repo `bin` directory is on `PATH`, prefer:
+From Linux or WSL, run the Bash wrapper. It launches the native Linux64 binary directly, so Linux paths are passed through unchanged and WSL Windows interoperability is not involved. If the repo `bin` directory is on `PATH`, prefer:
 
 ```bash
 EncodingFixTool.sh path=. preset=delphi-ai scope=git-changed format=json

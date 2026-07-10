@@ -4,7 +4,7 @@ Use this reference when the standard `preset=delphi-ai scope=git-changed` workfl
 
 ## Runtime Dependency
 
-Prefer `EncodingFixTool` from `PATH`. If unavailable, use a repo-local executable such as `.\bin\EncodingFixTool.exe`.
+Prefer `EncodingFixTool` from `PATH` on Windows or `EncodingFixTool.sh` on Linux/WSL. Repo-local paths are `.\bin\EncodingFixTool.exe` on Windows and `./bin/EncodingFixTool.sh` on Linux/WSL. The shell launcher executes `bin/Linux64/EncodingFixTool` directly and does not use Windows interoperability.
 
 ## Delphi AI Preset
 
@@ -55,6 +55,8 @@ Repo presets may live in `.encodingfix.json`; user presets may live in:
 
 ```text
 %APPDATA%\MaxLogic\EncodingFixTool\config.json
+$XDG_CONFIG_HOME/MaxLogic/EncodingFixTool/config.json
+$HOME/.config/MaxLogic/EncodingFixTool/config.json
 ```
 
 Preset precedence:
