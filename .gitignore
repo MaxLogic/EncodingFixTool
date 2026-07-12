@@ -82,6 +82,7 @@ __recovery/
 modules/
 .aider*
 .agents/
+/AGENTS.md
 /TASKS.md
 /bin/*.cmds
 /bin/Linux64/
