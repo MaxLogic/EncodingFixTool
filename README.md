@@ -54,6 +54,8 @@ From Linux or WSL, use the thin launcher so arguments remain native Linux paths:
 
 The launcher executes the Linux64 ELF binary directly. It does not start a Windows process and does not require WSL Windows interoperability or `wslpath`.
 
+The official Linux64 binary is built with Delphi 13 against the Ubuntu 20.04 SDK. It requires x86-64 Linux with glibc 2.17 or newer and is tested with Ubuntu 20.04-compatible libraries and Ubuntu 22.04. Building Linux64 from source requires the Delphi SDK profile `ubuntu20.04.sdk`; the project pins that profile to avoid accidentally raising the minimum Linux version.
+
 ---
 
 ## Parameters

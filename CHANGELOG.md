@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v1.6] - 2026-07-12
 
 ### Added
 
@@ -11,6 +11,7 @@
 - Changed `EncodingFixTool.sh` to launch the native Linux64 executable directly instead of invoking the Windows EXE through WSL interoperability.
 - Made Git execution, shell quoting, user config discovery, and path containment platform-correct; Linux avoids treating its UTF-8 default encoding as a legacy ANSI candidate while Windows retains active-code-page compatibility.
 - Updated the agent skill with the native Linux runtime layout, optional WSL `PATH` setup, and fresh-shell verification.
+- Changed release builds to Delphi 13 while pinning Linux64 to the Ubuntu 20.04 SDK, keeping the native binary compatible with glibc 2.17 and newer instead of requiring glibc 2.34.
 
 ### Fixed
 

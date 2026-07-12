@@ -82,6 +82,7 @@ __recovery/
 modules/
 .aider*
 .agents/
+/TASKS.md
 /bin/*.cmds
 /bin/Linux64/
 /src/dcu/

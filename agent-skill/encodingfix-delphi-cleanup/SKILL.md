@@ -26,6 +26,7 @@ bin/Linux64/EncodingFixTool
 ```
 
 The wrapper launches the native Linux64 binary directly. It does not use `EncodingFixTool.exe`, `wslpath`, or WSL Windows interoperability. Keep the wrapper executable and the `Linux64` directory next to it.
+The shipped binary requires x86-64 Linux with glibc 2.17 or newer.
 
 Adding `bin` to `PATH` is optional. It is needed only to invoke `EncodingFixTool.sh` by name from any directory; repo-local `./bin/EncodingFixTool.sh` works without it. For Bash login shells, add the native Linux path to `~/.profile`:
 

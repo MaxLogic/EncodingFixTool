@@ -14,6 +14,7 @@ bin/Linux64/EncodingFixTool
 ```
 
 `PATH` is optional. Add the absolute native `bin` path to `~/.profile` for login shells and to `~/.bashrc` for direct non-login interactive Bash shells. Non-interactive automation should receive an explicit `PATH` or use the absolute/repo-local wrapper path. Verify configured shells with `command -v EncodingFixTool.sh` followed by `EncodingFixTool.sh help`.
+The native executable requires x86-64 Linux with glibc 2.17 or newer.
 
 ## Delphi AI Preset
 
